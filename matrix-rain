@@ -338,11 +338,24 @@ def main(stdscr):
 
 
 if __name__ == '__main__':
+    # Parse args first to handle --help without needing a TTY
+    args = parse_args()
+    
+    # Check if we're running in a real terminal
+    if not sys.stdout.isatty():
+        print("Error: matrix-rain requires a terminal to run.", file=sys.stderr)
+        print("Please run this command directly in your terminal.", file=sys.stderr)
+        sys.exit(1)
+    
     # Wrap main in curses wrapper for proper terminal handling
     try:
         curses.wrapper(main)
     except KeyboardInterrupt:
         pass
+    except curses.error as e:
+        print(f"Terminal error: {e}", file=sys.stderr)
+        print("Make sure you're running in a proper terminal.", file=sys.stderr)
+        sys.exit(1)
     finally:
         # Ensure terminal is restored
         print("\033[?25h", end='')  # Show cursor
