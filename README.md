@@ -1,26 +1,47 @@
 # Matrix Rain 🎬
 
-A terminal-based Matrix digital rain animation featuring Japanese characters (Katakana), numbers, and symbols - just like in the movie!
+A beautiful terminal-based Matrix digital rain animation featuring authentic Japanese characters (Katakana), smooth color gradients, and cinematic visual effects - just like in the movie!
 
-![Matrix Rain](https://media.giphy.com/media/sULKEgDMX8LcI/giphy.gif)
+<p align="center">
+  <img src="https://media.giphy.com/media/sULKEgDMX8LcI/giphy.gif" alt="Matrix Rain Demo" width="600">
+</p>
 
 ## Features
 
-- 🇯🇵 **Authentic Japanese characters** - Half-width and full-width Katakana
-- 🎨 **Multiple colors** - Green, red, blue, cyan, magenta, yellow, white
-- 🌈 **Rainbow mode** - Psychedelic cycling colors
-- ⚡ **Adjustable speed** - From slow and dramatic to blazing fast
-- 📊 **Density control** - Sparse or dense rain
-- 🖥️ **Screensaver mode** - Exit on any keypress
-- 📐 **Terminal resize support** - Adapts to window size changes
-- ✨ **Character mutation** - Characters randomly change as they fall (like the movie!)
+- **Authentic Japanese Characters** - Half-width and full-width Katakana (ｦｱｲｳｴｵ / アイウエオ)
+- **8-Shade Color Gradients** - Smooth transitions from bright white head → vibrant color → fade to dark
+- **Glowing Head Effect** - White leading character with 3-character bright glow trail
+- **7 Color Themes** - Green, Red, Blue, Cyan, Magenta, Yellow, White
+- **Rainbow Mode** - Psychedelic cycling colors across columns
+- **Adjustable Speed** - From slow cinematic (1) to blazing fast (10)
+- **Density Control** - From sparse (1) to very dense (10)
+- **Screensaver Mode** - Exit on any keypress
+- **Full Terminal Coverage** - Rain reaches every corner of your screen
+- **Smooth Animation** - Column-based rendering with no flickering
+- **Terminal Resize Support** - Adapts dynamically to window size changes
 
 ## Installation
 
-The script is already installed at `~/bin/matrix-rain`.
+### Quick Install
 
-Make sure `~/bin` is in your PATH. For Fish shell, add to `~/.config/fish/config.fish`:
+```bash
+# Clone the repository
+git clone https://github.com/Serg-Ale/matrix-rain.git
 
+# Make it executable
+chmod +x matrix-rain/matrix-rain
+
+# Option 1: Run directly
+./matrix-rain/matrix-rain
+
+# Option 2: Add to your PATH (recommended)
+mkdir -p ~/bin
+ln -sf "$(pwd)/matrix-rain/matrix-rain" ~/bin/matrix-rain
+```
+
+### Add to PATH
+
+**Fish shell** (`~/.config/fish/config.fish`):
 ```fish
 if test -d ~/bin
     if not contains -- ~/bin $PATH
@@ -29,75 +50,169 @@ if test -d ~/bin
 end
 ```
 
+**Bash/Zsh** (`~/.bashrc` or `~/.zshrc`):
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
 ## Usage
 
 ```bash
-# Classic green Matrix rain
+# Classic green Matrix rain (default)
 matrix-rain
 
 # Different colors
-matrix-rain --color red
-matrix-rain --color cyan
+matrix-rain -c red
+matrix-rain -c cyan
+matrix-rain -c blue
 matrix-rain -c magenta
+matrix-rain -c yellow
+matrix-rain -c white
 
 # Rainbow mode!
 matrix-rain --rainbow
-matrix-rain -r
 
-# Speed control (1-10, default: 5)
-matrix-rain --speed 8      # Faster
-matrix-rain -s 2           # Slower
+# Adjust speed (1-10, default: 5)
+matrix-rain -s 8      # Faster
+matrix-rain -s 2      # Slower, more dramatic
 
-# Density control (1-10, default: 5)
-matrix-rain --density 8    # Dense rain
-matrix-rain -d 3           # Sparse rain
+# Adjust density (1-10, default: 7)
+matrix-rain -d 10     # Maximum density
+matrix-rain -d 3      # Sparse rain
 
 # Screensaver mode (exit on any keypress)
-matrix-rain --screensaver
 matrix-rain -S
 
-# Combine options
-matrix-rain -c cyan -s 7 -d 8 -S
-matrix-rain --rainbow --speed 6 --density 7
+# Combine options for custom experience
+matrix-rain -c green -s 6 -d 9      # Fast, very dense green
+matrix-rain -c cyan -s 3 -d 5 -S    # Slow cyan screensaver
+matrix-rain --rainbow -s 7 -d 8     # Fast dense rainbow
 ```
 
-## Options
+## Command Line Options
 
-| Flag | Long | Description | Default |
-|------|------|-------------|---------|
-| `-c` | `--color` | Rain color (green/red/blue/cyan/magenta/yellow/white/rainbow) | green |
-| `-s` | `--speed` | Animation speed (1-10) | 5 |
-| `-d` | `--density` | Rain density (1-10) | 5 |
-| `-S` | `--screensaver` | Exit on any keypress | off |
-| `-r` | `--rainbow` | Rainbow color mode | off |
+| Flag | Long Form | Description | Default |
+|------|-----------|-------------|---------|
+| `-c` | `--color` | Rain color theme | `green` |
+| `-s` | `--speed` | Animation speed (1-10) | `5` |
+| `-d` | `--density` | Rain density (1-10) | `7` |
+| `-S` | `--screensaver` | Exit on any keypress | `off` |
+| `-r` | `--rainbow` | Rainbow color cycling mode | `off` |
 | `-h` | `--help` | Show help message | - |
+
+### Available Colors
+
+| Color | Description |
+|-------|-------------|
+| `green` | Classic Matrix green (default) |
+| `red` | Red theme |
+| `blue` | Blue theme |
+| `cyan` | Cyan/teal theme |
+| `magenta` | Purple/magenta theme |
+| `yellow` | Yellow/gold theme |
+| `white` | Grayscale theme |
+| `rainbow` | Cycling through all colors |
 
 ## Controls
 
-- Press `q` or `Escape` to exit
-- In screensaver mode (`-S`), press any key to exit
-- `Ctrl+C` also works to exit
+| Key | Action |
+|-----|--------|
+| `q` | Quit |
+| `Escape` | Quit |
+| `Ctrl+C` | Quit |
+| Any key | Quit (in screensaver mode only) |
 
 ## Requirements
 
-- Python 3.6+
-- Terminal with Unicode/UTF-8 support
-- A font that supports Japanese characters (e.g., Noto Sans CJK, Hack Nerd Font)
+- **Python 3.6+** (uses `curses`, `dataclasses`)
+- **256-color terminal** (most modern terminals support this)
+- **UTF-8 support** for Japanese characters
+- **Monospace font with Japanese support** (e.g., Noto Sans Mono CJK, Hack Nerd Font, JetBrains Mono)
 
-## Character Sets
+### Tested Terminals
 
-The script uses authentic Matrix-style characters:
+- Konsole (KDE)
+- GNOME Terminal
+- Alacritty
+- Kitty
+- xterm (with UTF-8)
+- Windows Terminal (WSL)
 
-- **Half-width Katakana**: ｦｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ...
-- **Full-width Katakana**: アイウエオカキクケコサシスセソ...
-- **Numbers**: 0123456789
-- **Symbols**: !@#$%^&*()_+-=[]{}|;:',.<>?
-- **Latin**: ABCDEFGHIJKLMNOPQRSTUVWXYZ
+## How It Works
+
+### Character Sets
+
+The animation uses authentic Matrix-style characters:
+
+```
+Half-width Katakana: ｦｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ
+Full-width Katakana: アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホ...
+Numbers & Symbols:   0123456789:<>*+=-@#$%&
+```
+
+### Color Gradient System
+
+Each trail uses an 8-shade gradient for smooth, cinematic fading:
+
+```
+Shade 0: ████ Bright White    (head)
+Shade 1: ████ Bright Glow     (glow zone)
+Shade 2: ████ Medium Glow     (glow zone)
+Shade 3: ████ Bright Color    (trail start)
+Shade 4: ████ Medium-Bright   
+Shade 5: ████ Medium          
+Shade 6: ████ Dim             
+Shade 7: ████ Very Dark       (trail end)
+```
+
+### Architecture
+
+- **Column-based rendering** - Each column independently tracks its rain drop
+- **Persistent character grid** - Characters stay in place (no horizontal flickering)
+- **Brightness grid** - Separate tracking of fade levels for smooth gradients
+- **256-color palette** - Uses xterm-256 color indices for consistent colors across terminals
+
+## Troubleshooting
+
+### Japanese characters not displaying
+
+Make sure your terminal font supports Japanese characters. Recommended fonts:
+- Noto Sans Mono CJK
+- Hack Nerd Font
+- Source Han Code JP
+- JetBrains Mono (with fallback)
+
+### Colors look wrong
+
+Ensure your terminal supports 256 colors:
+```bash
+echo $TERM          # Should show xterm-256color or similar
+tput colors         # Should show 256
+```
+
+### Characters not reaching bottom of screen
+
+Update to the latest version - this was fixed in commit `34d795b`.
 
 ## License
 
 MIT License - Feel free to use, modify, and distribute!
 
+## Contributing
+
+Contributions are welcome! Feel free to:
+- Report bugs
+- Suggest new features
+- Submit pull requests
+
 ## Credits
 
-Created with Claude 🤖
+Created by [Serg-Ale](https://github.com/Serg-Ale) with assistance from Claude AI
+
+---
+
+<p align="center">
+  <i>"Unfortunately, no one can be told what the Matrix is. You have to see it for yourself."</i>
+  <br>
+  - Morpheus
+</p>
