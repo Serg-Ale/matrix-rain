@@ -7,9 +7,10 @@ A terminal-based Matrix digital rain animation featuring Japanese characters
 
 Features:
 - Authentic Japanese characters (half-width and full-width Katakana)
-- 8-shade green gradient for smooth, cinematic fading
-- Glowing head effect (white head + bright green glow)
+- 8-shade color gradient using 256-color palette
+- Glowing head effect (white head + bright color glow)
 - Column-based rendering (no horizontal flickering)
+- Very dense, long-persistence trails for immersive effect
 - Multiple color themes and rainbow mode
 
 Author: Created with Claude
@@ -23,7 +24,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 # Set locale for Unicode support
 locale.setlocale(locale.LC_ALL, '')
@@ -42,84 +43,100 @@ LATIN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # Combined character set (weighted towards Japanese for authenticity)
 MATRIX_CHARS = HALF_WIDTH_KATAKANA * 3 + FULL_WIDTH_KATAKANA * 2 + NUMBERS + SYMBOLS
 
-# Color theme definitions (RGB values in curses scale: 0-1000)
-COLOR_THEMES = {
-    'green': [
-        (1000, 1000, 1000),  # 0: White (head)
-        (400, 1000, 400),    # 1: Very bright green (glow)
-        (200, 900, 200),     # 2: Bright green (glow)
-        (0, 800, 0),         # 3: Medium-bright green
-        (0, 600, 0),         # 4: Medium green
-        (0, 450, 0),         # 5: Dim green
-        (0, 300, 0),         # 6: Dark green
-        (0, 150, 0),         # 7: Very dark green (fade out)
-    ],
-    'red': [
-        (1000, 1000, 1000),
-        (1000, 400, 400),
-        (900, 200, 200),
-        (800, 0, 0),
-        (600, 0, 0),
-        (450, 0, 0),
-        (300, 0, 0),
-        (150, 0, 0),
-    ],
-    'blue': [
-        (1000, 1000, 1000),
-        (400, 400, 1000),
-        (200, 200, 900),
-        (0, 0, 800),
-        (0, 0, 600),
-        (0, 0, 450),
-        (0, 0, 300),
-        (0, 0, 150),
-    ],
-    'cyan': [
-        (1000, 1000, 1000),
-        (400, 1000, 1000),
-        (200, 900, 900),
-        (0, 800, 800),
-        (0, 600, 600),
-        (0, 450, 450),
-        (0, 300, 300),
-        (0, 150, 150),
-    ],
-    'magenta': [
-        (1000, 1000, 1000),
-        (1000, 400, 1000),
-        (900, 200, 900),
-        (800, 0, 800),
-        (600, 0, 600),
-        (450, 0, 450),
-        (300, 0, 300),
-        (150, 0, 150),
-    ],
-    'yellow': [
-        (1000, 1000, 1000),
-        (1000, 1000, 400),
-        (900, 900, 200),
-        (800, 800, 0),
-        (600, 600, 0),
-        (450, 450, 0),
-        (300, 300, 0),
-        (150, 150, 0),
-    ],
-    'white': [
-        (1000, 1000, 1000),
-        (900, 900, 900),
-        (800, 800, 800),
-        (650, 650, 650),
-        (500, 500, 500),
-        (350, 350, 350),
-        (220, 220, 220),
-        (120, 120, 120),
-    ],
-}
-
 # Number of brightness levels
 NUM_SHADES = 8
 
-# Rainbow colors for rainbow mode
+# =============================================================================
+# 256-COLOR PALETTE MAPPING
+# =============================================================================
+# Using the standard 256-color xterm palette instead of curses.init_color()
+# This ensures colors work correctly across all terminals (including Konsole)
+#
+# 256-color palette structure:
+#   0-7:     Standard colors (black, red, green, yellow, blue, magenta, cyan, white)
+#   8-15:    High-intensity colors
+#   16-231:  6x6x6 color cube (216 colors)
+#   232-255: Grayscale (24 shades, dark to light)
+#
+# Color cube formula: 16 + (36 × r) + (6 × g) + b, where r,g,b are 0-5
+# =============================================================================
+
+# Pre-defined color indices for each theme using 256-color palette
+# Each theme has 8 shades: [head(white), glow1, glow2, bright, medium, dim, dark, very_dark]
+COLOR_PALETTE = {
+    'green': [
+        15,   # 0: Bright white (head)
+        48,   # 1: #00ff87 - very bright green/white glow
+        41,   # 2: #00d75f - bright green glow
+        40,   # 3: #00d700 - bright green
+        34,   # 4: #00af00 - medium-bright green
+        28,   # 5: #008700 - medium green
+        22,   # 6: #005f00 - dark green
+        236,  # 7: #303030 - very dark (almost black)
+    ],
+    'red': [
+        15,   # 0: Bright white (head)
+        210,  # 1: #ff8787 - very bright red/white glow
+        203,  # 2: #ff5f5f - bright red glow
+        196,  # 3: #ff0000 - bright red
+        160,  # 4: #d70000 - medium-bright red
+        124,  # 5: #af0000 - medium red
+        88,   # 6: #870000 - dark red
+        236,  # 7: #303030 - very dark
+    ],
+    'blue': [
+        15,   # 0: Bright white (head)
+        117,  # 1: #87d7ff - very bright blue/white glow
+        75,   # 2: #5fafff - bright blue glow
+        33,   # 3: #0087ff - bright blue
+        27,   # 4: #005fff - medium-bright blue
+        21,   # 5: #0000ff - medium blue
+        19,   # 6: #0000af - dark blue
+        236,  # 7: #303030 - very dark
+    ],
+    'cyan': [
+        15,   # 0: Bright white (head)
+        123,  # 1: #87ffff - very bright cyan/white glow
+        87,   # 2: #5fffff - bright cyan glow
+        51,   # 3: #00ffff - bright cyan
+        44,   # 4: #00d7d7 - medium-bright cyan
+        37,   # 5: #00afaf - medium cyan
+        30,   # 6: #008787 - dark cyan
+        236,  # 7: #303030 - very dark
+    ],
+    'magenta': [
+        15,   # 0: Bright white (head)
+        219,  # 1: #ffafff - very bright magenta/white glow
+        213,  # 2: #ff87ff - bright magenta glow
+        201,  # 3: #ff00ff - bright magenta
+        165,  # 4: #d700ff - medium-bright magenta
+        129,  # 5: #af00ff - medium magenta
+        93,   # 6: #8700ff - dark magenta
+        236,  # 7: #303030 - very dark
+    ],
+    'yellow': [
+        15,   # 0: Bright white (head)
+        228,  # 1: #ffff87 - very bright yellow/white glow
+        227,  # 2: #ffff5f - bright yellow glow
+        226,  # 3: #ffff00 - bright yellow
+        220,  # 4: #ffd700 - medium-bright yellow
+        178,  # 5: #d7af00 - medium yellow
+        136,  # 6: #af8700 - dark yellow/gold
+        236,  # 7: #303030 - very dark
+    ],
+    'white': [
+        15,   # 0: Bright white (head)
+        255,  # 1: #eeeeee - very bright white
+        253,  # 2: #dadada - bright white
+        251,  # 3: #c6c6c6 - light gray
+        246,  # 4: #949494 - medium gray
+        242,  # 5: #6c6c6c - dim gray
+        238,  # 6: #444444 - dark gray
+        235,  # 7: #262626 - very dark gray
+    ],
+}
+
+# Rainbow colors sequence
 RAINBOW_SEQUENCE = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
 
 
@@ -129,7 +146,7 @@ class Column:
     x: int                          # Column position
     head_y: float = -1.0            # Current head position (float for smooth movement)
     speed: float = 0.5              # Fall speed (cells per frame)
-    trail_length: int = 15          # Length of the visible trail
+    trail_length: int = 20          # Length of the visible trail
     spawn_delay: int = 0            # Frames to wait before starting
     active: bool = True             # Whether this column is active
     last_head_y: int = -1           # Last integer head position (for detecting movement)
@@ -139,7 +156,7 @@ class MatrixRain:
     """Main Matrix rain animation controller using column-based rendering."""
     
     def __init__(self, stdscr, color: str = 'green', speed: int = 5, 
-                 density: int = 5, screensaver: bool = False, rainbow: bool = False):
+                 density: int = 7, screensaver: bool = False, rainbow: bool = False):
         self.stdscr = stdscr
         self.color_name = color
         self.base_speed = speed / 10.0  # Normalize to 0.1 - 1.0
@@ -181,44 +198,35 @@ class MatrixRain:
         curses.use_default_colors()
         
     def _setup_colors(self):
-        """Initialize color pairs for the gradient effect using 256-color mode."""
-        # Check if terminal supports color modification
-        self.can_change_colors = curses.can_change_color()
+        """Initialize color pairs using the 256-color palette."""
+        # Get the color palette for the selected theme
+        palette = COLOR_PALETTE.get(self.color_name, COLOR_PALETTE['green'])
         
-        if self.can_change_colors:
-            # Use custom colors for beautiful gradients
-            theme = COLOR_THEMES.get(self.color_name, COLOR_THEMES['green'])
-            
-            # Define custom colors (starting from color 16 to avoid overwriting defaults)
-            for i, (r, g, b) in enumerate(theme):
+        # Create color pairs for each brightness level
+        # Using pairs 1-8 for the main theme
+        for i, color_idx in enumerate(palette):
+            try:
+                curses.init_pair(i + 1, color_idx, -1)
+            except curses.error:
+                # Fallback to basic colors if 256-color fails
+                self._setup_fallback_colors()
+                return
+        
+        # Setup rainbow color pairs (pairs 10+)
+        # Each rainbow color gets 8 shades
+        pair_offset = 10
+        for theme_idx, theme_name in enumerate(RAINBOW_SEQUENCE):
+            theme_palette = COLOR_PALETTE[theme_name]
+            for shade_idx, color_idx in enumerate(theme_palette):
+                pair_num = pair_offset + (theme_idx * NUM_SHADES) + shade_idx
                 try:
-                    curses.init_color(16 + i, r, g, b)
-                    curses.init_pair(i + 1, 16 + i, -1)
+                    curses.init_pair(pair_num, color_idx, -1)
                 except curses.error:
-                    # Fallback if color init fails
-                    self._setup_fallback_colors()
-                    return
-            
-            # Setup rainbow colors if needed
-            if self.rainbow:
-                color_offset = 30  # Start rainbow colors at 30
-                for theme_idx, theme_name in enumerate(RAINBOW_SEQUENCE):
-                    theme = COLOR_THEMES[theme_name]
-                    for shade_idx, (r, g, b) in enumerate(theme):
-                        try:
-                            color_num = color_offset + (theme_idx * NUM_SHADES) + shade_idx
-                            curses.init_color(color_num, r, g, b)
-                            curses.init_pair(color_num - 29 + NUM_SHADES, color_num, -1)
-                        except curses.error:
-                            pass
-        else:
-            self._setup_fallback_colors()
+                    pass
     
     def _setup_fallback_colors(self):
-        """Fallback color setup for terminals that don't support color modification."""
-        self.can_change_colors = False
-        
-        # Map color names to curses colors
+        """Fallback color setup for terminals without 256-color support."""
+        # Map color names to basic curses colors
         color_map = {
             'green': curses.COLOR_GREEN,
             'red': curses.COLOR_RED,
@@ -231,11 +239,15 @@ class MatrixRain:
         
         base_color = color_map.get(self.color_name, curses.COLOR_GREEN)
         
-        # Create basic color pairs
+        # Create basic color pairs with attributes to simulate gradient
         curses.init_pair(1, curses.COLOR_WHITE, -1)   # Head (white)
-        curses.init_pair(2, base_color, -1)           # Bright
-        curses.init_pair(3, base_color, -1)           # Medium
-        curses.init_pair(4, base_color, -1)           # Dim
+        curses.init_pair(2, base_color, -1)           # Glow 1
+        curses.init_pair(3, base_color, -1)           # Glow 2
+        curses.init_pair(4, base_color, -1)           # Bright
+        curses.init_pair(5, base_color, -1)           # Medium-bright
+        curses.init_pair(6, base_color, -1)           # Medium
+        curses.init_pair(7, base_color, -1)           # Dim
+        curses.init_pair(8, base_color, -1)           # Very dim
         
     def _init_columns(self):
         """Initialize all columns with staggered spawn delays."""
@@ -243,22 +255,23 @@ class MatrixRain:
         for x in range(self.width - 1):  # -1 to avoid edge issues with wide chars
             col = Column(
                 x=x,
-                head_y=-random.randint(1, self.height),  # Start above screen
+                head_y=-random.randint(1, self.height // 2),  # Start above screen
                 speed=self._random_speed(),
                 trail_length=self._random_trail_length(),
-                spawn_delay=random.randint(0, 30),  # Stagger initial spawns
+                spawn_delay=random.randint(0, 10),  # Short initial delays for quick start
             )
             self.columns.append(col)
     
     def _random_speed(self) -> float:
         """Generate a random speed based on base speed setting."""
-        # Speed varies between 0.3x and 1.5x of base speed
-        return self.base_speed * random.uniform(0.3, 1.5)
+        # Speed varies between 0.2x and 2.0x of base speed for more variety
+        return self.base_speed * random.uniform(0.2, 2.0)
     
     def _random_trail_length(self) -> int:
-        """Generate a random trail length."""
-        min_len = max(8, self.height // 6)
-        max_len = max(min_len + 5, self.height // 2)
+        """Generate a random trail length - longer trails for more persistence."""
+        # Trail length between 1/3 and 2/3 of screen height
+        min_len = max(10, self.height // 3)
+        max_len = max(min_len + 10, (self.height * 2) // 3)
         return random.randint(min_len, max_len)
     
     def _random_char(self) -> str:
@@ -272,35 +285,22 @@ class MatrixRain:
         
         if self.rainbow:
             # Cycle through rainbow colors based on column and frame
-            theme_idx = (column_x + self.frame_count // 8) % len(RAINBOW_SEQUENCE)
-            if self.can_change_colors:
-                pair_num = NUM_SHADES + 1 + (theme_idx * NUM_SHADES) + brightness
-                return curses.color_pair(pair_num)
-            else:
-                # Fallback rainbow
-                colors = [curses.COLOR_RED, curses.COLOR_YELLOW, curses.COLOR_GREEN,
-                         curses.COLOR_CYAN, curses.COLOR_BLUE, curses.COLOR_MAGENTA]
-                curses.init_pair(100 + theme_idx, colors[theme_idx], -1)
-                attr = curses.color_pair(100 + theme_idx)
-                if brightness == 0:
-                    return attr | curses.A_BOLD
-                elif brightness > 4:
-                    return attr | curses.A_DIM
-                return attr
+            theme_idx = (column_x + self.frame_count // 10) % len(RAINBOW_SEQUENCE)
+            pair_num = 10 + (theme_idx * NUM_SHADES) + brightness
+            attr = curses.color_pair(pair_num)
+            # Add bold for brightest shades
+            if brightness <= 1:
+                attr |= curses.A_BOLD
+            return attr
         
-        if self.can_change_colors:
-            # Use our custom gradient colors
-            return curses.color_pair(brightness + 1)
-        else:
-            # Fallback: use attributes to simulate brightness
-            if brightness == 0:
-                return curses.color_pair(1) | curses.A_BOLD  # White head
-            elif brightness <= 2:
-                return curses.color_pair(2) | curses.A_BOLD  # Bright
-            elif brightness <= 4:
-                return curses.color_pair(3)                   # Medium
-            else:
-                return curses.color_pair(4) | curses.A_DIM    # Dim
+        # Use the pre-defined color pairs (1-8)
+        attr = curses.color_pair(brightness + 1)
+        
+        # Add bold for the brightest shades (head and glow)
+        if brightness <= 2:
+            attr |= curses.A_BOLD
+        
+        return attr
     
     def _update_column(self, col: Column):
         """Update a single column's state."""
@@ -336,33 +336,42 @@ class MatrixRain:
             elif distance_from_head == 0:
                 # The head itself - brightest white
                 self.brightness_grid[y][col.x] = 0
-            elif distance_from_head <= 2:
-                # Glow effect - very bright green (shades 1-2)
-                self.brightness_grid[y][col.x] = distance_from_head
+            elif distance_from_head <= 3:
+                # Glow effect - very bright (shades 1-2)
+                # Extended glow zone for more dramatic effect
+                self.brightness_grid[y][col.x] = min(distance_from_head, 2)
             elif distance_from_head < col.trail_length:
                 # Main trail - gradient from bright to dim
                 # Map distance to brightness levels 3-7
-                progress = (distance_from_head - 2) / (col.trail_length - 2)
+                progress = (distance_from_head - 3) / max(1, (col.trail_length - 3))
                 brightness = 3 + int(progress * 4)  # 3 to 7
                 self.brightness_grid[y][col.x] = min(brightness, NUM_SHADES - 1)
             else:
-                # Beyond trail - fade out
+                # Beyond trail - start fading
                 fade_distance = distance_from_head - col.trail_length
-                self.brightness_grid[y][col.x] = min(NUM_SHADES + fade_distance, NUM_SHADES + 5)
+                # Slower fade for longer persistence
+                fade_brightness = NUM_SHADES + (fade_distance // 2)
+                self.brightness_grid[y][col.x] = min(fade_brightness, NUM_SHADES + 10)
         
         # Respawn column when it's fully off screen
-        if col.head_y - col.trail_length > self.height + 10:
+        if col.head_y - col.trail_length > self.height + 5:
             self._respawn_column(col)
     
     def _respawn_column(self, col: Column):
         """Respawn a column at the top with new random properties."""
-        # Only respawn based on density setting
-        if random.random() > (self.density / 10.0):
-            col.spawn_delay = random.randint(10, 50)  # Delay before respawning
-        else:
-            col.spawn_delay = random.randint(0, 10)
+        # Higher density = shorter delay before respawning
+        # At density 10, almost immediate respawn
+        # At density 1, longer delays
+        max_delay = max(1, 20 - (self.density * 2))
         
-        col.head_y = -random.randint(1, 10)
+        # Random chance to respawn immediately for more organic feel
+        if random.random() < (self.density / 10.0):
+            col.spawn_delay = random.randint(0, max_delay // 2)
+        else:
+            col.spawn_delay = random.randint(0, max_delay)
+        
+        # Start position - some variation
+        col.head_y = -random.randint(1, 8)
         col.last_head_y = -1
         col.speed = self._random_speed()
         col.trail_length = self._random_trail_length()
@@ -374,7 +383,7 @@ class MatrixRain:
                 brightness = self.brightness_grid[y][x]
                 
                 if brightness > NUM_SHADES:
-                    # Invisible - skip
+                    # Invisible - skip drawing (leave as background)
                     continue
                 
                 char = self.char_grid[y][x]
@@ -420,10 +429,10 @@ class MatrixRain:
                 for x in range(old_width - 1, new_width - 1):
                     col = Column(
                         x=x,
-                        head_y=-random.randint(1, self.height),
+                        head_y=-random.randint(1, self.height // 2),
                         speed=self._random_speed(),
                         trail_length=self._random_trail_length(),
-                        spawn_delay=random.randint(0, 20),
+                        spawn_delay=random.randint(0, 10),
                     )
                     self.columns.append(col)
             elif new_width < old_width:
@@ -497,7 +506,7 @@ Examples:
   matrix-rain -c red -s 8         # Fast red rain
   matrix-rain --rainbow           # Rainbow mode!
   matrix-rain -S                  # Screensaver mode (exit on keypress)
-  matrix-rain -c green -s 7 -d 8  # Fast, dense green rain
+  matrix-rain -c green -s 6 -d 9  # Fast, very dense green rain
 
 Colors available: green, red, blue, cyan, magenta, yellow, white, rainbow
 
@@ -509,7 +518,7 @@ Press 'q' or Escape to exit (or any key in screensaver mode).
         '-c', '--color',
         type=str,
         default='green',
-        choices=list(COLOR_THEMES.keys()) + ['rainbow'],
+        choices=list(COLOR_PALETTE.keys()) + ['rainbow'],
         help='Rain color (default: green)'
     )
     
@@ -525,10 +534,10 @@ Press 'q' or Escape to exit (or any key in screensaver mode).
     parser.add_argument(
         '-d', '--density',
         type=int,
-        default=5,
+        default=7,
         choices=range(1, 11),
         metavar='1-10',
-        help='Rain density, 1=sparse, 10=dense (default: 5)'
+        help='Rain density, 1=sparse, 10=very dense (default: 7)'
     )
     
     parser.add_argument(
@@ -568,7 +577,6 @@ def main(stdscr):
 
 if __name__ == '__main__':
     # Parse args first to handle --help without needing a TTY
-    # We need to check for help before the TTY check
     if '-h' in sys.argv or '--help' in sys.argv:
         parse_args()
         sys.exit(0)
