@@ -378,8 +378,8 @@ class MatrixRain:
     
     def _draw(self):
         """Draw the current state to the screen."""
-        for y in range(self.height - 1):  # -1 to avoid bottom line issues
-            for x in range(self.width - 1):  # -1 to avoid edge issues
+        for y in range(self.height):  # Draw to all rows including the last
+            for x in range(self.width):  # Draw to all columns including the last
                 brightness = self.brightness_grid[y][x]
                 
                 if brightness > NUM_SHADES:
