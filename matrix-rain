@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""
+Matrix Rain - Terminal Digital Rain Effect
+
+A terminal-based Matrix digital rain animation featuring Japanese characters
+(Katakana), numbers, and symbols - just like in the movie!
+
+Author: Created with Claude
+License: MIT
+"""
+
+import argparse
+import curses
+import locale
+import random
+import sys
+import time
+from dataclasses import dataclass
+from typing import List, Optional
+
+# Set locale for Unicode support
+locale.setlocale(locale.LC_ALL, '')
+
+# Character sets - authentic Matrix style
+HALF_WIDTH_KATAKANA = "ｦｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ"
+FULL_WIDTH_KATAKANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
+NUMBERS = "0123456789"
+SYMBOLS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`"
+LATIN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+# Combined character set (authentic Matrix mix)
+MATRIX_CHARS = HALF_WIDTH_KATAKANA + FULL_WIDTH_KATAKANA + NUMBERS + SYMBOLS + LATIN
+
+# Color definitions
+COLORS = {
+    'green': curses.COLOR_GREEN,
+    'red': curses.COLOR_RED,
+    'blue': curses.COLOR_BLUE,
+    'cyan': curses.COLOR_CYAN,
+    'magenta': curses.COLOR_MAGENTA,
+    'yellow': curses.COLOR_YELLOW,
+    'white': curses.COLOR_WHITE,
+}
+
+RAINBOW_COLORS = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
+
+
+@dataclass
+class Drop:
+    """Represents a single falling stream of characters."""
+    x: int                      # Column position
+    y: float                    # Current head position (float for smooth movement)
+    speed: float                # Fall speed
+    length: int                 # Trail length
+    chars: List[str]            # Characters in the trail
+    active: bool = True         # Whether this drop is still falling
+
+
+class MatrixRain:
+    """Main Matrix rain animation controller."""
+    
+    def __init__(self, stdscr, color: str = 'green', speed: int = 5, 
+                 density: int = 5, screensaver: bool = False, rainbow: bool = False):
+        self.stdscr = stdscr
+        self.color_name = color
+        self.base_speed = speed / 10.0  # Normalize to 0.1 - 1.0
+        self.density = density / 10.0   # Normalize to 0.1 - 1.0
+        self.screensaver = screensaver
+        self.rainbow = rainbow
+        self.drops: List[Drop] = []
+        self.frame_count = 0
+        
+        # Setup curses
+        self._setup_curses()
+        self._setup_colors()
+        
+        # Get terminal dimensions
+        self.height, self.width = stdscr.getmaxyx()
+        
+    def _setup_curses(self):
+        """Configure curses settings."""
+        curses.curs_set(0)          # Hide cursor
+        self.stdscr.nodelay(True)   # Non-blocking input
+        self.stdscr.timeout(0)      # Don't wait for input
+        curses.start_color()
+        curses.use_default_colors()
+        
+    def _setup_colors(self):
+        """Initialize color pairs for the rain effect."""
+        # Main color pairs (1-7 for different intensities)
+        base_color = COLORS.get(self.color_name, curses.COLOR_GREEN)
+        
+        # Pair 1: Dim (trail end)
+        # Pair 2: Medium 
+        # Pair 3: Bright (trail start)
+        # Pair 4: Head (white/bright)
+        
+        curses.init_pair(1, base_color, -1)      # Dim green
+        curses.init_pair(2, base_color, -1)      # Medium green  
+        curses.init_pair(3, base_color, -1)      # Bright green
+        curses.init_pair(4, curses.COLOR_WHITE, -1)  # White head
+        
+        # Rainbow colors (pairs 10-16)
+        for i, color_name in enumerate(RAINBOW_COLORS):
+            curses.init_pair(10 + i, COLORS[color_name], -1)
+    
+    def _get_color_pair(self, position_in_trail: int, trail_length: int, column: int = 0) -> int:
+        """Get the appropriate color pair based on position in trail."""
+        if position_in_trail == 0:
+            # Head of the drop - bright white
+            return curses.color_pair(4) | curses.A_BOLD
+        
+        if self.rainbow:
+            # Rainbow mode - color based on column and frame
+            color_idx = (column + self.frame_count // 5) % len(RAINBOW_COLORS)
+            return curses.color_pair(10 + color_idx)
+        
+        # Calculate intensity based on position (closer to head = brighter)
+        ratio = position_in_trail / trail_length
+        
+        if ratio < 0.3:
+            return curses.color_pair(3) | curses.A_BOLD  # Bright
+        elif ratio < 0.6:
+            return curses.color_pair(2)                   # Medium
+        else:
+            return curses.color_pair(1) | curses.A_DIM    # Dim
+    
+    def _random_char(self) -> str:
+        """Get a random Matrix character."""
+        return random.choice(MATRIX_CHARS)
+    
+    def _create_drop(self, x: int, y: int = 0) -> Drop:
+        """Create a new falling drop at the specified position."""
+        # Randomize speed based on base speed setting
+        speed = self.base_speed * random.uniform(0.5, 1.5)
+        
+        # Randomize trail length
+        min_length = max(5, self.height // 4)
+        max_length = self.height // 2
+        length = random.randint(min_length, max_length)
+        
+        # Initialize with random characters
+        chars = [self._random_char() for _ in range(length)]
+        
+        return Drop(x=x, y=y, speed=speed, length=length, chars=chars)
+    
+    def _spawn_drops(self):
+        """Spawn new drops at the top of random columns."""
+        # Spawn rate based on density
+        spawn_chance = self.density * 0.3
+        
+        for x in range(self.width - 1):  # -1 to avoid edge issues
+            # Check if this column already has a drop near the top
+            has_recent_drop = any(
+                d.x == x and d.y < d.length 
+                for d in self.drops
+            )
+            
+            if not has_recent_drop and random.random() < spawn_chance * 0.1:
+                self.drops.append(self._create_drop(x, y=-random.randint(0, 10)))
+    
+    def _update_drops(self):
+        """Update all drops - move them down and mutate characters."""
+        for drop in self.drops:
+            # Move the drop down
+            drop.y += drop.speed
+            
+            # Randomly mutate some characters (like in the movie!)
+            if random.random() < 0.1:
+                idx = random.randint(0, len(drop.chars) - 1)
+                drop.chars[idx] = self._random_char()
+            
+            # Mark as inactive if completely off screen
+            if drop.y - drop.length > self.height:
+                drop.active = False
+        
+        # Remove inactive drops
+        self.drops = [d for d in self.drops if d.active]
+    
+    def _draw_drops(self):
+        """Draw all drops to the screen."""
+        for drop in self.drops:
+            for i, char in enumerate(drop.chars):
+                # Calculate y position for this character in the trail
+                char_y = int(drop.y) - i
+                
+                # Skip if off screen
+                if char_y < 0 or char_y >= self.height - 1:
+                    continue
+                if drop.x < 0 or drop.x >= self.width - 1:
+                    continue
+                
+                try:
+                    color = self._get_color_pair(i, drop.length, drop.x)
+                    self.stdscr.addstr(char_y, drop.x, char, color)
+                except curses.error:
+                    # Ignore errors at screen boundaries
+                    pass
+    
+    def _handle_resize(self):
+        """Handle terminal resize."""
+        new_height, new_width = self.stdscr.getmaxyx()
+        if new_height != self.height or new_width != self.width:
+            self.height, self.width = new_height, new_width
+            self.stdscr.clear()
+            # Remove drops that are now outside the screen
+            self.drops = [d for d in self.drops if d.x < self.width - 1]
+    
+    def _check_input(self) -> bool:
+        """Check for user input. Returns True if should exit."""
+        try:
+            key = self.stdscr.getch()
+            if key != -1:  # A key was pressed
+                if self.screensaver:
+                    return True  # Exit on any key in screensaver mode
+                elif key == ord('q') or key == ord('Q') or key == 27:  # q or Escape
+                    return True
+        except curses.error:
+            pass
+        return False
+    
+    def run(self):
+        """Main animation loop."""
+        try:
+            while True:
+                # Check for input
+                if self._check_input():
+                    break
+                
+                # Handle terminal resize
+                self._handle_resize()
+                
+                # Clear screen
+                self.stdscr.erase()
+                
+                # Spawn new drops
+                self._spawn_drops()
+                
+                # Update drop positions
+                self._update_drops()
+                
+                # Draw everything
+                self._draw_drops()
+                
+                # Refresh screen
+                self.stdscr.refresh()
+                
+                # Frame timing - faster base_speed = shorter delay
+                delay = 0.05 / (self.base_speed + 0.1)
+                delay = max(0.01, min(delay, 0.1))  # Clamp between 10ms and 100ms
+                time.sleep(delay)
+                
+                self.frame_count += 1
+                
+        except KeyboardInterrupt:
+            pass
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Matrix Rain - Terminal Digital Rain Effect',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  matrix-rain                     # Classic green Matrix rain
+  matrix-rain -c cyan             # Cyan colored rain
+  matrix-rain -c red -s 8         # Fast red rain
+  matrix-rain --rainbow           # Rainbow mode!
+  matrix-rain -S                  # Screensaver mode (exit on keypress)
+  matrix-rain -c green -s 7 -d 8  # Fast, dense green rain
+
+Colors available: green, red, blue, cyan, magenta, yellow, white, rainbow
+
+Press 'q' or Escape to exit (or any key in screensaver mode).
+        '''
+    )
+    
+    parser.add_argument(
+        '-c', '--color',
+        type=str,
+        default='green',
+        choices=list(COLORS.keys()) + ['rainbow'],
+        help='Rain color (default: green)'
+    )
+    
+    parser.add_argument(
+        '-s', '--speed',
+        type=int,
+        default=5,
+        choices=range(1, 11),
+        metavar='1-10',
+        help='Animation speed, 1=slow, 10=fast (default: 5)'
+    )
+    
+    parser.add_argument(
+        '-d', '--density',
+        type=int,
+        default=5,
+        choices=range(1, 11),
+        metavar='1-10',
+        help='Rain density, 1=sparse, 10=dense (default: 5)'
+    )
+    
+    parser.add_argument(
+        '-S', '--screensaver',
+        action='store_true',
+        help='Screensaver mode - exit on any keypress'
+    )
+    
+    parser.add_argument(
+        '-r', '--rainbow',
+        action='store_true',
+        help='Rainbow mode - cycling colors'
+    )
+    
+    return parser.parse_args()
+
+
+def main(stdscr):
+    """Main entry point wrapped by curses."""
+    args = parse_args()
+    
+    # Handle rainbow flag
+    rainbow = args.rainbow or args.color == 'rainbow'
+    color = 'green' if rainbow else args.color
+    
+    # Create and run the Matrix rain
+    matrix = MatrixRain(
+        stdscr,
+        color=color,
+        speed=args.speed,
+        density=args.density,
+        screensaver=args.screensaver,
+        rainbow=rainbow
+    )
+    matrix.run()
+
+
+if __name__ == '__main__':
+    # Wrap main in curses wrapper for proper terminal handling
+    try:
+        curses.wrapper(main)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Ensure terminal is restored
+        print("\033[?25h", end='')  # Show cursor
+        print("\033[0m", end='')    # Reset colors
