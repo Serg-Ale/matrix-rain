@@ -3,7 +3,7 @@
 A beautiful terminal-based Matrix digital rain animation featuring authentic Japanese characters (Katakana), smooth color gradients, and cinematic visual effects - just like in the movie!
 
 <p align="center">
-  <img src="https://media.giphy.com/media/sULKEgDMX8LcI/giphy.gif" alt="Matrix Rain Demo" width="600">
+  <img src="assets/demo.gif" alt="Matrix Rain Demo" width="700">
 </p>
 
 ## Features
