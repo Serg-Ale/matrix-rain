@@ -5,6 +5,13 @@ Matrix Rain - Terminal Digital Rain Effect
 A terminal-based Matrix digital rain animation featuring Japanese characters
 (Katakana), numbers, and symbols - just like in the movie!
 
+Features:
+- Authentic Japanese characters (half-width and full-width Katakana)
+- 8-shade green gradient for smooth, cinematic fading
+- Glowing head effect (white head + bright green glow)
+- Column-based rendering (no horizontal flickering)
+- Multiple color themes and rainbow mode
+
 Author: Created with Claude
 License: MIT
 """
@@ -15,67 +22,155 @@ import locale
 import random
 import sys
 import time
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict
 
 # Set locale for Unicode support
 locale.setlocale(locale.LC_ALL, '')
 
 # Character sets - authentic Matrix style
+# Half-width Katakana (most authentic to the movie)
 HALF_WIDTH_KATAKANA = "ｦｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ"
+# Full-width Katakana
 FULL_WIDTH_KATAKANA = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
+# Numbers and symbols
 NUMBERS = "0123456789"
-SYMBOLS = "!@#$%^&*()_+-=[]{}|;:',.<>?/~`"
+SYMBOLS = ":<>*+=-@#$%&"
+# Latin (less common, for variety)
 LATIN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-# Combined character set (authentic Matrix mix)
-MATRIX_CHARS = HALF_WIDTH_KATAKANA + FULL_WIDTH_KATAKANA + NUMBERS + SYMBOLS + LATIN
+# Combined character set (weighted towards Japanese for authenticity)
+MATRIX_CHARS = HALF_WIDTH_KATAKANA * 3 + FULL_WIDTH_KATAKANA * 2 + NUMBERS + SYMBOLS
 
-# Color definitions
-COLORS = {
-    'green': curses.COLOR_GREEN,
-    'red': curses.COLOR_RED,
-    'blue': curses.COLOR_BLUE,
-    'cyan': curses.COLOR_CYAN,
-    'magenta': curses.COLOR_MAGENTA,
-    'yellow': curses.COLOR_YELLOW,
-    'white': curses.COLOR_WHITE,
+# Color theme definitions (RGB values in curses scale: 0-1000)
+COLOR_THEMES = {
+    'green': [
+        (1000, 1000, 1000),  # 0: White (head)
+        (400, 1000, 400),    # 1: Very bright green (glow)
+        (200, 900, 200),     # 2: Bright green (glow)
+        (0, 800, 0),         # 3: Medium-bright green
+        (0, 600, 0),         # 4: Medium green
+        (0, 450, 0),         # 5: Dim green
+        (0, 300, 0),         # 6: Dark green
+        (0, 150, 0),         # 7: Very dark green (fade out)
+    ],
+    'red': [
+        (1000, 1000, 1000),
+        (1000, 400, 400),
+        (900, 200, 200),
+        (800, 0, 0),
+        (600, 0, 0),
+        (450, 0, 0),
+        (300, 0, 0),
+        (150, 0, 0),
+    ],
+    'blue': [
+        (1000, 1000, 1000),
+        (400, 400, 1000),
+        (200, 200, 900),
+        (0, 0, 800),
+        (0, 0, 600),
+        (0, 0, 450),
+        (0, 0, 300),
+        (0, 0, 150),
+    ],
+    'cyan': [
+        (1000, 1000, 1000),
+        (400, 1000, 1000),
+        (200, 900, 900),
+        (0, 800, 800),
+        (0, 600, 600),
+        (0, 450, 450),
+        (0, 300, 300),
+        (0, 150, 150),
+    ],
+    'magenta': [
+        (1000, 1000, 1000),
+        (1000, 400, 1000),
+        (900, 200, 900),
+        (800, 0, 800),
+        (600, 0, 600),
+        (450, 0, 450),
+        (300, 0, 300),
+        (150, 0, 150),
+    ],
+    'yellow': [
+        (1000, 1000, 1000),
+        (1000, 1000, 400),
+        (900, 900, 200),
+        (800, 800, 0),
+        (600, 600, 0),
+        (450, 450, 0),
+        (300, 300, 0),
+        (150, 150, 0),
+    ],
+    'white': [
+        (1000, 1000, 1000),
+        (900, 900, 900),
+        (800, 800, 800),
+        (650, 650, 650),
+        (500, 500, 500),
+        (350, 350, 350),
+        (220, 220, 220),
+        (120, 120, 120),
+    ],
 }
 
-RAINBOW_COLORS = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
+# Number of brightness levels
+NUM_SHADES = 8
+
+# Rainbow colors for rainbow mode
+RAINBOW_SEQUENCE = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
 
 
 @dataclass
-class Drop:
-    """Represents a single falling stream of characters."""
-    x: int                      # Column position
-    y: float                    # Current head position (float for smooth movement)
-    speed: float                # Fall speed
-    length: int                 # Trail length
-    chars: List[str]            # Characters in the trail
-    active: bool = True         # Whether this drop is still falling
+class Column:
+    """Represents a single column of falling rain."""
+    x: int                          # Column position
+    head_y: float = -1.0            # Current head position (float for smooth movement)
+    speed: float = 0.5              # Fall speed (cells per frame)
+    trail_length: int = 15          # Length of the visible trail
+    spawn_delay: int = 0            # Frames to wait before starting
+    active: bool = True             # Whether this column is active
+    last_head_y: int = -1           # Last integer head position (for detecting movement)
 
 
 class MatrixRain:
-    """Main Matrix rain animation controller."""
+    """Main Matrix rain animation controller using column-based rendering."""
     
     def __init__(self, stdscr, color: str = 'green', speed: int = 5, 
                  density: int = 5, screensaver: bool = False, rainbow: bool = False):
         self.stdscr = stdscr
         self.color_name = color
         self.base_speed = speed / 10.0  # Normalize to 0.1 - 1.0
-        self.density = density / 10.0   # Normalize to 0.1 - 1.0
+        self.density = density
         self.screensaver = screensaver
         self.rainbow = rainbow
-        self.drops: List[Drop] = []
         self.frame_count = 0
+        
+        # Get terminal dimensions
+        self.height, self.width = stdscr.getmaxyx()
+        
+        # Character grid - stores the character at each position
+        # Characters persist until overwritten by a new drop
+        self.char_grid: List[List[str]] = [
+            [' ' for _ in range(self.width)] for _ in range(self.height)
+        ]
+        
+        # Brightness grid - stores brightness level (0=brightest, 7=dimmest, 8+=invisible)
+        self.brightness_grid: List[List[int]] = [
+            [NUM_SHADES + 1 for _ in range(self.width)] for _ in range(self.height)
+        ]
+        
+        # Column states - one per terminal column
+        self.columns: List[Column] = []
         
         # Setup curses
         self._setup_curses()
         self._setup_colors()
         
-        # Get terminal dimensions
-        self.height, self.width = stdscr.getmaxyx()
+        # Initialize columns
+        self._init_columns()
         
     def _setup_curses(self):
         """Configure curses settings."""
@@ -86,113 +181,209 @@ class MatrixRain:
         curses.use_default_colors()
         
     def _setup_colors(self):
-        """Initialize color pairs for the rain effect."""
-        # Main color pairs (1-7 for different intensities)
-        base_color = COLORS.get(self.color_name, curses.COLOR_GREEN)
+        """Initialize color pairs for the gradient effect using 256-color mode."""
+        # Check if terminal supports color modification
+        self.can_change_colors = curses.can_change_color()
         
-        # Pair 1: Dim (trail end)
-        # Pair 2: Medium 
-        # Pair 3: Bright (trail start)
-        # Pair 4: Head (white/bright)
-        
-        curses.init_pair(1, base_color, -1)      # Dim green
-        curses.init_pair(2, base_color, -1)      # Medium green  
-        curses.init_pair(3, base_color, -1)      # Bright green
-        curses.init_pair(4, curses.COLOR_WHITE, -1)  # White head
-        
-        # Rainbow colors (pairs 10-16)
-        for i, color_name in enumerate(RAINBOW_COLORS):
-            curses.init_pair(10 + i, COLORS[color_name], -1)
-    
-    def _get_color_pair(self, position_in_trail: int, trail_length: int, column: int = 0) -> int:
-        """Get the appropriate color pair based on position in trail."""
-        if position_in_trail == 0:
-            # Head of the drop - bright white
-            return curses.color_pair(4) | curses.A_BOLD
-        
-        if self.rainbow:
-            # Rainbow mode - color based on column and frame
-            color_idx = (column + self.frame_count // 5) % len(RAINBOW_COLORS)
-            return curses.color_pair(10 + color_idx)
-        
-        # Calculate intensity based on position (closer to head = brighter)
-        ratio = position_in_trail / trail_length
-        
-        if ratio < 0.3:
-            return curses.color_pair(3) | curses.A_BOLD  # Bright
-        elif ratio < 0.6:
-            return curses.color_pair(2)                   # Medium
+        if self.can_change_colors:
+            # Use custom colors for beautiful gradients
+            theme = COLOR_THEMES.get(self.color_name, COLOR_THEMES['green'])
+            
+            # Define custom colors (starting from color 16 to avoid overwriting defaults)
+            for i, (r, g, b) in enumerate(theme):
+                try:
+                    curses.init_color(16 + i, r, g, b)
+                    curses.init_pair(i + 1, 16 + i, -1)
+                except curses.error:
+                    # Fallback if color init fails
+                    self._setup_fallback_colors()
+                    return
+            
+            # Setup rainbow colors if needed
+            if self.rainbow:
+                color_offset = 30  # Start rainbow colors at 30
+                for theme_idx, theme_name in enumerate(RAINBOW_SEQUENCE):
+                    theme = COLOR_THEMES[theme_name]
+                    for shade_idx, (r, g, b) in enumerate(theme):
+                        try:
+                            color_num = color_offset + (theme_idx * NUM_SHADES) + shade_idx
+                            curses.init_color(color_num, r, g, b)
+                            curses.init_pair(color_num - 29 + NUM_SHADES, color_num, -1)
+                        except curses.error:
+                            pass
         else:
-            return curses.color_pair(1) | curses.A_DIM    # Dim
+            self._setup_fallback_colors()
+    
+    def _setup_fallback_colors(self):
+        """Fallback color setup for terminals that don't support color modification."""
+        self.can_change_colors = False
+        
+        # Map color names to curses colors
+        color_map = {
+            'green': curses.COLOR_GREEN,
+            'red': curses.COLOR_RED,
+            'blue': curses.COLOR_BLUE,
+            'cyan': curses.COLOR_CYAN,
+            'magenta': curses.COLOR_MAGENTA,
+            'yellow': curses.COLOR_YELLOW,
+            'white': curses.COLOR_WHITE,
+        }
+        
+        base_color = color_map.get(self.color_name, curses.COLOR_GREEN)
+        
+        # Create basic color pairs
+        curses.init_pair(1, curses.COLOR_WHITE, -1)   # Head (white)
+        curses.init_pair(2, base_color, -1)           # Bright
+        curses.init_pair(3, base_color, -1)           # Medium
+        curses.init_pair(4, base_color, -1)           # Dim
+        
+    def _init_columns(self):
+        """Initialize all columns with staggered spawn delays."""
+        self.columns = []
+        for x in range(self.width - 1):  # -1 to avoid edge issues with wide chars
+            col = Column(
+                x=x,
+                head_y=-random.randint(1, self.height),  # Start above screen
+                speed=self._random_speed(),
+                trail_length=self._random_trail_length(),
+                spawn_delay=random.randint(0, 30),  # Stagger initial spawns
+            )
+            self.columns.append(col)
+    
+    def _random_speed(self) -> float:
+        """Generate a random speed based on base speed setting."""
+        # Speed varies between 0.3x and 1.5x of base speed
+        return self.base_speed * random.uniform(0.3, 1.5)
+    
+    def _random_trail_length(self) -> int:
+        """Generate a random trail length."""
+        min_len = max(8, self.height // 6)
+        max_len = max(min_len + 5, self.height // 2)
+        return random.randint(min_len, max_len)
     
     def _random_char(self) -> str:
         """Get a random Matrix character."""
         return random.choice(MATRIX_CHARS)
     
-    def _create_drop(self, x: int, y: int = 0) -> Drop:
-        """Create a new falling drop at the specified position."""
-        # Randomize speed based on base speed setting
-        speed = self.base_speed * random.uniform(0.5, 1.5)
+    def _get_color_attr(self, brightness: int, column_x: int = 0) -> int:
+        """Get the curses color attribute for a given brightness level."""
+        if brightness >= NUM_SHADES:
+            return 0  # Invisible
         
-        # Randomize trail length
-        min_length = max(5, self.height // 4)
-        max_length = self.height // 2
-        length = random.randint(min_length, max_length)
+        if self.rainbow:
+            # Cycle through rainbow colors based on column and frame
+            theme_idx = (column_x + self.frame_count // 8) % len(RAINBOW_SEQUENCE)
+            if self.can_change_colors:
+                pair_num = NUM_SHADES + 1 + (theme_idx * NUM_SHADES) + brightness
+                return curses.color_pair(pair_num)
+            else:
+                # Fallback rainbow
+                colors = [curses.COLOR_RED, curses.COLOR_YELLOW, curses.COLOR_GREEN,
+                         curses.COLOR_CYAN, curses.COLOR_BLUE, curses.COLOR_MAGENTA]
+                curses.init_pair(100 + theme_idx, colors[theme_idx], -1)
+                attr = curses.color_pair(100 + theme_idx)
+                if brightness == 0:
+                    return attr | curses.A_BOLD
+                elif brightness > 4:
+                    return attr | curses.A_DIM
+                return attr
         
-        # Initialize with random characters
-        chars = [self._random_char() for _ in range(length)]
-        
-        return Drop(x=x, y=y, speed=speed, length=length, chars=chars)
+        if self.can_change_colors:
+            # Use our custom gradient colors
+            return curses.color_pair(brightness + 1)
+        else:
+            # Fallback: use attributes to simulate brightness
+            if brightness == 0:
+                return curses.color_pair(1) | curses.A_BOLD  # White head
+            elif brightness <= 2:
+                return curses.color_pair(2) | curses.A_BOLD  # Bright
+            elif brightness <= 4:
+                return curses.color_pair(3)                   # Medium
+            else:
+                return curses.color_pair(4) | curses.A_DIM    # Dim
     
-    def _spawn_drops(self):
-        """Spawn new drops at the top of random columns."""
-        # Spawn rate based on density
-        spawn_chance = self.density * 0.3
+    def _update_column(self, col: Column):
+        """Update a single column's state."""
+        # Handle spawn delay
+        if col.spawn_delay > 0:
+            col.spawn_delay -= 1
+            return
         
-        for x in range(self.width - 1):  # -1 to avoid edge issues
-            # Check if this column already has a drop near the top
-            has_recent_drop = any(
-                d.x == x and d.y < d.length 
-                for d in self.drops
-            )
-            
-            if not has_recent_drop and random.random() < spawn_chance * 0.1:
-                self.drops.append(self._create_drop(x, y=-random.randint(0, 10)))
-    
-    def _update_drops(self):
-        """Update all drops - move them down and mutate characters."""
-        for drop in self.drops:
-            # Move the drop down
-            drop.y += drop.speed
-            
-            # Randomly mutate some characters (like in the movie!)
-            if random.random() < 0.1:
-                idx = random.randint(0, len(drop.chars) - 1)
-                drop.chars[idx] = self._random_char()
-            
-            # Mark as inactive if completely off screen
-            if drop.y - drop.length > self.height:
-                drop.active = False
+        # Move the head down
+        col.head_y += col.speed
         
-        # Remove inactive drops
-        self.drops = [d for d in self.drops if d.active]
-    
-    def _draw_drops(self):
-        """Draw all drops to the screen."""
-        for drop in self.drops:
-            for i, char in enumerate(drop.chars):
-                # Calculate y position for this character in the trail
-                char_y = int(drop.y) - i
+        # Check if head has moved to a new cell
+        current_head_y = int(col.head_y)
+        
+        if current_head_y != col.last_head_y and current_head_y >= 0:
+            # Head moved to a new cell - place a new character
+            if current_head_y < self.height:
+                self.char_grid[current_head_y][col.x] = self._random_char()
+                self.brightness_grid[current_head_y][col.x] = 0  # Brightest (head)
+            
+            col.last_head_y = current_head_y
+        
+        # Update brightness for the trail (create gradient effect)
+        for y in range(self.height):
+            if col.x >= self.width:
+                continue
                 
-                # Skip if off screen
-                if char_y < 0 or char_y >= self.height - 1:
+            distance_from_head = current_head_y - y
+            
+            if distance_from_head < 0:
+                # Above the head - not part of trail yet
+                continue
+            elif distance_from_head == 0:
+                # The head itself - brightest white
+                self.brightness_grid[y][col.x] = 0
+            elif distance_from_head <= 2:
+                # Glow effect - very bright green (shades 1-2)
+                self.brightness_grid[y][col.x] = distance_from_head
+            elif distance_from_head < col.trail_length:
+                # Main trail - gradient from bright to dim
+                # Map distance to brightness levels 3-7
+                progress = (distance_from_head - 2) / (col.trail_length - 2)
+                brightness = 3 + int(progress * 4)  # 3 to 7
+                self.brightness_grid[y][col.x] = min(brightness, NUM_SHADES - 1)
+            else:
+                # Beyond trail - fade out
+                fade_distance = distance_from_head - col.trail_length
+                self.brightness_grid[y][col.x] = min(NUM_SHADES + fade_distance, NUM_SHADES + 5)
+        
+        # Respawn column when it's fully off screen
+        if col.head_y - col.trail_length > self.height + 10:
+            self._respawn_column(col)
+    
+    def _respawn_column(self, col: Column):
+        """Respawn a column at the top with new random properties."""
+        # Only respawn based on density setting
+        if random.random() > (self.density / 10.0):
+            col.spawn_delay = random.randint(10, 50)  # Delay before respawning
+        else:
+            col.spawn_delay = random.randint(0, 10)
+        
+        col.head_y = -random.randint(1, 10)
+        col.last_head_y = -1
+        col.speed = self._random_speed()
+        col.trail_length = self._random_trail_length()
+    
+    def _draw(self):
+        """Draw the current state to the screen."""
+        for y in range(self.height - 1):  # -1 to avoid bottom line issues
+            for x in range(self.width - 1):  # -1 to avoid edge issues
+                brightness = self.brightness_grid[y][x]
+                
+                if brightness > NUM_SHADES:
+                    # Invisible - skip
                     continue
-                if drop.x < 0 or drop.x >= self.width - 1:
+                
+                char = self.char_grid[y][x]
+                if char == ' ':
                     continue
                 
                 try:
-                    color = self._get_color_pair(i, drop.length, drop.x)
-                    self.stdscr.addstr(char_y, drop.x, char, color)
+                    attr = self._get_color_attr(brightness, x)
+                    self.stdscr.addstr(y, x, char, attr)
                 except curses.error:
                     # Ignore errors at screen boundaries
                     pass
@@ -200,11 +391,45 @@ class MatrixRain:
     def _handle_resize(self):
         """Handle terminal resize."""
         new_height, new_width = self.stdscr.getmaxyx()
+        
         if new_height != self.height or new_width != self.width:
+            old_height, old_width = self.height, self.width
             self.height, self.width = new_height, new_width
+            
+            # Resize grids
+            # Expand or shrink height
+            if new_height > old_height:
+                for _ in range(new_height - old_height):
+                    self.char_grid.append([' ' for _ in range(new_width)])
+                    self.brightness_grid.append([NUM_SHADES + 1 for _ in range(new_width)])
+            elif new_height < old_height:
+                self.char_grid = self.char_grid[:new_height]
+                self.brightness_grid = self.brightness_grid[:new_height]
+            
+            # Expand or shrink width
+            for y in range(len(self.char_grid)):
+                if new_width > len(self.char_grid[y]):
+                    self.char_grid[y].extend([' ' for _ in range(new_width - len(self.char_grid[y]))])
+                    self.brightness_grid[y].extend([NUM_SHADES + 1 for _ in range(new_width - len(self.brightness_grid[y]))])
+                elif new_width < len(self.char_grid[y]):
+                    self.char_grid[y] = self.char_grid[y][:new_width]
+                    self.brightness_grid[y] = self.brightness_grid[y][:new_width]
+            
+            # Add or remove columns
+            if new_width > old_width:
+                for x in range(old_width - 1, new_width - 1):
+                    col = Column(
+                        x=x,
+                        head_y=-random.randint(1, self.height),
+                        speed=self._random_speed(),
+                        trail_length=self._random_trail_length(),
+                        spawn_delay=random.randint(0, 20),
+                    )
+                    self.columns.append(col)
+            elif new_width < old_width:
+                self.columns = [c for c in self.columns if c.x < new_width - 1]
+            
             self.stdscr.clear()
-            # Remove drops that are now outside the screen
-            self.drops = [d for d in self.drops if d.x < self.width - 1]
     
     def _check_input(self) -> bool:
         """Check for user input. Returns True if should exit."""
@@ -221,8 +446,14 @@ class MatrixRain:
     
     def run(self):
         """Main animation loop."""
+        # Calculate frame delay based on speed
+        # Higher speed = shorter delay = faster animation
+        base_delay = 0.03  # 30ms base (~33 FPS)
+        
         try:
             while True:
+                frame_start = time.time()
+                
                 # Check for input
                 if self._check_input():
                     break
@@ -233,21 +464,19 @@ class MatrixRain:
                 # Clear screen
                 self.stdscr.erase()
                 
-                # Spawn new drops
-                self._spawn_drops()
-                
-                # Update drop positions
-                self._update_drops()
+                # Update all columns
+                for col in self.columns:
+                    self._update_column(col)
                 
                 # Draw everything
-                self._draw_drops()
+                self._draw()
                 
                 # Refresh screen
                 self.stdscr.refresh()
                 
-                # Frame timing - faster base_speed = shorter delay
-                delay = 0.05 / (self.base_speed + 0.1)
-                delay = max(0.01, min(delay, 0.1))  # Clamp between 10ms and 100ms
+                # Frame timing
+                frame_time = time.time() - frame_start
+                delay = max(0.01, base_delay - frame_time)
                 time.sleep(delay)
                 
                 self.frame_count += 1
@@ -280,7 +509,7 @@ Press 'q' or Escape to exit (or any key in screensaver mode).
         '-c', '--color',
         type=str,
         default='green',
-        choices=list(COLORS.keys()) + ['rainbow'],
+        choices=list(COLOR_THEMES.keys()) + ['rainbow'],
         help='Rain color (default: green)'
     )
     
@@ -339,7 +568,10 @@ def main(stdscr):
 
 if __name__ == '__main__':
     # Parse args first to handle --help without needing a TTY
-    args = parse_args()
+    # We need to check for help before the TTY check
+    if '-h' in sys.argv or '--help' in sys.argv:
+        parse_args()
+        sys.exit(0)
     
     # Check if we're running in a real terminal
     if not sys.stdout.isatty():
