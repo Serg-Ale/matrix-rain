@@ -1,8 +1,8 @@
 """Shared interface every visualizer mode plugin implements.
 
 A mode owns whatever state it needs (columns, node fields, phase...) and
-renders through the App's shared helpers (``add_char``, ``get_color_attr``,
-``get_contrast_attr``) — it never touches ``curses`` directly.
+renders through the App's shared helpers (``add_char``, ``get_color``,
+``get_contrast_color``) — it never touches ``curses`` directly.
 """
 
 

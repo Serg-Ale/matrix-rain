@@ -59,7 +59,7 @@ class ScannerMode(Mode):
         step_y = 1 if y0 < y1 else -1
         error = dx + dy
         while True:
-            app.add_char(y0, x0, char, app.get_color_attr(brightness, x0))
+            app.add_char(y0, x0, char, app.get_color(brightness, x0))
             if x0 == x1 and y0 == y1:
                 break
             twice_error = 2 * error
@@ -73,7 +73,7 @@ class ScannerMode(Mode):
     def _draw_text(self, app, y: int, x: int, text: str, brightness: int = 4):
         """Write compact HUD text while keeping edge writes safe."""
         for offset, char in enumerate(text):
-            app.add_char(y, x + offset, char, app.get_color_attr(brightness, x + offset))
+            app.add_char(y, x + offset, char, app.get_color(brightness, x + offset))
 
     def _draw_terrain(self, app):
         """Draw a low-contrast ASCII skyline that creates real scan targets."""
@@ -82,14 +82,14 @@ class ScannerMode(Mode):
 
         ground_y = int(self.structures[0][5])
         for x in range(app.width):
-            app.add_char(ground_y, x, '_', app.get_color_attr(7, x))
+            app.add_char(ground_y, x, '_', app.get_color(7, x))
         for structure in self.structures:
             center_x, roof_y = int(structure[0]), int(structure[1])
             building_width, building_ground = int(structure[4]), int(structure[5])
             left = center_x - (building_width // 2)
             right = center_x + (building_width // 2)
             for x in range(left, right + 1):
-                app.add_char(roof_y, x, '=', app.get_color_attr(6, x))
+                app.add_char(roof_y, x, '=', app.get_color(6, x))
             for y in range(roof_y + 1, building_ground):
                 for x in range(left, right + 1):
                     if x in (left, right):
@@ -98,10 +98,10 @@ class ScannerMode(Mode):
                         char, brightness = ':', 7
                     else:
                         char, brightness = '#', 7
-                    app.add_char(y, x, char, app.get_color_attr(brightness, x))
+                    app.add_char(y, x, char, app.get_color(brightness, x))
             # An antenna is a second, smaller structural point above each roof.
-            app.add_char(roof_y - 1, center_x, '|', app.get_color_attr(5, center_x))
-            app.add_char(roof_y - 2, center_x, '^', app.get_color_attr(6, center_x))
+            app.add_char(roof_y - 1, center_x, '|', app.get_color(5, center_x))
+            app.add_char(roof_y - 2, center_x, '^', app.get_color(6, center_x))
 
     def render(self, app):
         """Render a rotating tactical radar with target trails and a compact HUD."""
@@ -117,7 +117,7 @@ class ScannerMode(Mode):
                 angle = (math.pi * 2 * step) / 144.0
                 x = int(center_x + math.cos(angle) * radius_x * ring)
                 y = int(center_y + math.sin(angle) * radius_y * ring)
-                app.add_char(y, x, '.', app.get_color_attr(7, x))
+                app.add_char(y, x, '.', app.get_color(7, x))
 
         self._draw_terrain(app)
 
@@ -168,8 +168,8 @@ class ScannerMode(Mode):
             for tail in range(3, 0, -1):
                 tail_x = int(x - target[3] * tail * 2)
                 tail_y = int(y - target[4] * tail * 2)
-                app.add_char(tail_y, tail_x, '.', app.get_color_attr(min(7, brightness + tail), tail_x))
-            app.add_char(y, x, marker, app.get_color_attr(brightness, x))
+                app.add_char(tail_y, tail_x, '.', app.get_color(min(7, brightness + tail), tail_x))
+            app.add_char(y, x, marker, app.get_color(brightness, x))
 
         structure_hits = 0
         for structure in self.structures:
@@ -191,11 +191,11 @@ class ScannerMode(Mode):
                 brightness, marker = 2, 'X'
             else:
                 brightness, marker = 6, '+'
-            app.add_char(y, x, marker, app.get_color_attr(brightness, x))
+            app.add_char(y, x, marker, app.get_color(brightness, x))
             if energy > 0.30:
                 self._draw_text(app, y - 1, x + 2, str(structure[2]), brightness)
 
-        app.add_char(center_y, center_x, '#', app.get_color_attr(0, center_x))
+        app.add_char(center_y, center_x, '#', app.get_color(0, center_x))
         if app.height > 4 and app.width > 28:
             self._draw_text(app, 1, 2, 'RADAR // SECTOR 07', 3)
             self._draw_text(app, 2, 2, 'LOCKS:{0:02d}  STRUCT:{1:02d}  SWEEP:{2:03d}'.format(locks, structure_hits, int(math.degrees(self.angle))), 5)

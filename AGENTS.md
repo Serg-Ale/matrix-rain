@@ -14,14 +14,24 @@ Arquivos versionados:
   `sys.path` e chama `core.cli.run()`. A implementação real vive em `core/` e
   `modes/`.
 - `core/`: motor compartilhado por todos os modos.
-  - `app.py`: orquestração — ciclo de vida do `curses`, loop principal,
-    entrada, resize, cores/desenho compartilhados, painel de controle. A
-    classe `App` é o equivalente ao antigo `MatrixRain`.
+  - `app.py`: orquestração — ciclo de vida do `curses` (só entrada, resize e
+    tela alternativa — ver `screen.py` abaixo), loop principal,
+    cores/desenho compartilhados, painel de controle. A classe `App` é o
+    equivalente ao antigo `MatrixRain`.
   - `cli.py`: parsing de argumentos (`parse_args`) e bootstrap do `curses`
     (`run`).
   - `charset.py`: conjuntos de caracteres (Katakana, números, símbolos).
-  - `palette.py`: paleta de 256 cores por tema (pré-true-color — ver issue
-    #3), sequência do arco-íris, cores de contraste.
+  - `color.py`: motor de cor puro — sem `curses`, sem I/O, 100% testável
+    (`tests/test_color.py`). Detecção de true color via `COLORTERM`,
+    gradiente contínuo RGB, conversão de índice 256 → RGB e o inverso
+    (snap determinístico), e a sequência ANSI final (`ansi_fg`).
+  - `palette.py`: paleta de 256 cores por tema (a mesma de sempre — ainda é
+    o piso de qualidade do fallback) e `theme_gradient_stops()`, que
+    converte essas 8 cores por tema em pontos de controle RGB para o
+    gradiente contínuo.
+  - `screen.py`: o único lugar que escreve na tela de verdade. Mantém um
+    buffer de frame e emite ANSI bruto (true color ou fallback 256,
+    conforme `App.truecolor`) — ver "Motor de cor" abaixo para o porquê.
 - `modes/`: um arquivo por modo de visualização, cada um implementando a
   interface `modes.base.Mode` (`reset(app)`, `render(app)`).
   - `rain.py`: chuva digital — `Column`, grades persistentes de
@@ -34,14 +44,48 @@ Arquivos versionados:
     produto deliberada.
   - `__init__.py`: registro dos modos — `MODE_ORDER` (ordem do ciclo da tecla
     `m`) e `MODE_CLASSES` (nome → classe).
+- `tests/`: testes de unidade (stdlib `unittest`) para a lógica pura de
+  `core/color.py` e `core/palette.py`. Nada que dependa de `curses` é
+  testado automaticamente — ver "Como executar e validar".
 - `README.md`: documentação voltada a pessoas e exemplos de uso.
 - `assets/demo.gif`: demonstração visual usada no README.
 
-Um modo nunca importa `curses` diretamente nem escreve na tela por conta
-própria — ele recebe a instância de `App` e usa `app.add_char()`,
-`app.get_color_attr()`, `app.get_contrast_attr()`, `app.width`/`app.height`,
-etc. Isso é o que torna os módulos de modo testáveis/portáveis sem arrastar
-`curses` junto.
+Um modo nunca importa `curses` nem escreve na tela por conta própria — ele
+recebe a instância de `App` e usa `app.add_char()`, `app.get_color()`,
+`app.get_contrast_color()`, `app.width`/`app.height`, etc. Isso é o que
+torna os módulos de modo testáveis/portáveis sem arrastar `curses` junto.
+Não há mais exceção para isso: antes da issue #3, `RainMode._draw()`
+escrevia em `app.stdscr.addstr()` diretamente; agora ela passa por
+`app.add_char()` como todo mundo, porque o próprio `curses` não desenha
+mais nada (ver "Motor de cor" abaixo).
+
+## Motor de cor
+
+Antes da issue #3, cores vinham de pares de cor do `curses`
+(`curses.init_pair`/`curses.color_pair`), limitados à paleta de 256 cores —
+o motivo é técnico: `curses` só expõe true color quando o `terminfo`
+declara `COLORS >= 16777216`, o que praticamente nenhum terminal comum
+anuncia mesmo suportando 24-bit de verdade. Por isso o desenho não passa
+mais por `curses` de jeito nenhum: `curses` cuida só de entrada
+(`stdscr.getch()`), resize (`stdscr.getmaxyx()`) e da tela alternativa
+(via `curses.wrapper()`); todo o desenho (`App.add_char`,
+`App._draw_control_panel`) escreve num `core.screen.Screen`, que emite ANSI
+bruto direto pro terminal.
+
+- `App.truecolor` é detectado uma vez (`color.supports_truecolor()`, a
+  partir de `COLORTERM`) e usado em `Screen.flush()` pra decidir entre
+  `\x1b[38;2;r;g;bm` (true color) e `\x1b[38;5;{índice}m` (fallback,
+  índice do 256-color mais próximo via `color.nearest_256`).
+- `App.get_color(brightness, column_x)` resolve um nível de brilho (0 a
+  `NUM_SHADES-1`) numa cor `(rgb, bold)`, interpolando continuamente entre
+  os 8 pontos de `palette.theme_gradient_stops()` do tema ativo — em vez de
+  indexar direto numa tabela fixa de 8 cores como antes.
+- `Screen` reposiciona o cursor explicitamente antes de cada caractere (em
+  vez de confiar no avanço automático do terminal) e nunca escreve no
+  canto inferior-direito — duas lições vindas do protótipo de fundo/
+  profundidade (issue #1): caracteres Katakana de largura completa
+  desalinham a linha se o cursor só avança sozinho, e escrever a última
+  célula da última linha aciona auto-scroll na maioria dos terminais.
 
 ## Como executar e validar
 
@@ -52,22 +96,30 @@ real; ela deliberadamente falha quando a saída é redirecionada.
 # validação estática mínima
 python3 -m py_compile matrix-rain core/*.py modes/*.py
 
+# testes de unidade (só lógica pura — color.py e palette.py, sem curses)
+python3 -m unittest discover -s tests -t .
+
 # validação da interface de linha de comando (não precisa de TTY)
 ./matrix-rain --help
 
 # execução interativa manual
 ./matrix-rain -c green -s 5 -d 7
+
+# forçar o caminho de fallback (256 cores) mesmo num terminal truecolor
+COLORTERM= ./matrix-rain -c green -s 5 -d 7
 ```
 
-Não existe uma suíte de testes automatizados ainda (ver issue #3 e #6 para os
-dois módulos que vão ganhar testes de unidade: motor de cor e presets — o
-resto continua exigindo validação manual porque depende de `curses`). Depois
-de alterar a renderização ou a interação, faça ao menos uma verificação
-manual em um terminal 256 cores:
+`tests/` cobre `core/color.py` e `core/palette.py` (motor de cor: detecção de
+`COLORTERM`, gradiente, conversão de/para 256 cores) e, quando a issue #6
+(presets) for implementada, o parsing/merge de TOML — o resto continua
+exigindo validação manual porque depende de `curses`/do terminal de verdade.
+Depois de alterar a renderização ou a interação, faça ao menos uma
+verificação manual em um terminal 256 cores:
 
 - confirme que `q`, `Esc` e `Ctrl+C` restauram o terminal;
 - redimensione a janela durante a animação;
-- teste um tema comum e `--rainbow`;
+- teste um tema comum e `--rainbow`, em ambos os caminhos de cor (truecolor
+  e `COLORTERM=` forçando fallback);
 - em `-S`, confirme que qualquer tecla encerra o programa.
 - fora de `-S`, altere velocidade e densidade durante a animação e confira o
   painel persistente de estado.
@@ -131,14 +183,16 @@ antiga velocidade global 2.
   posteriores.
 - `COLOR_PALETTE` (`core/palette.py`) usa índices xterm de 256 cores e deve
   sempre conter exatamente `NUM_SHADES` (8) entradas por tema. O índice 0 é
-  a cabeça branca.
-- Os pares de cor 1–8 são reservados ao tema normal; o arco-íris começa no par
-  10 e reserva 8 pares por item de `RAINBOW_SEQUENCE`.
-- Não remova os `try/except curses.error`: escrever no limite inferior/direito
-  do terminal e o suporte de cores variam entre emuladores.
+  a cabeça branca (sempre `(255, 255, 255)` depois de convertido — é o que
+  `tests/test_palette.py` verifica). `theme_gradient_stops()` é a única
+  ponte entre essa tabela e o motor de cor contínuo; não hard-code RGB de
+  tema em outro lugar.
 - Mantenha `width - 1` ao criar colunas em `RainMode`. É uma proteção
   intencional para caracteres Katakana de largura ambígua e bordas de
-  `curses`.
+  tela.
+- `Screen` (não mais `curses`) é quem decide o que é seguro escrever — não
+  duplique a checagem de limites (`0 <= y < height`) em outro lugar; passe
+  por `App.add_char`.
 - O caminho de saída deve continuar restaurando cursor e atributos ANSI no
   bloco `finally` de `core.cli.run()`.
 - `density` controla a quantidade de fluxos ativos em `RainMode` e também o
@@ -148,29 +202,31 @@ antiga velocidade global 2.
   `[`/`]`) ajustam velocidade e densidade; `t` alterna temas, `r` alterna
   arco-íris, `m` alterna os visualizadores e `h` mostra o painel. `p` alterna
   sua visibilidade.
-- Um modo nunca chama `curses` diretamente nem acessa `app.stdscr` fora dos
-  helpers já expostos por `App` — exceção histórica: `RainMode._draw()`
-  escreve em `app.stdscr.addstr()` diretamente e por isso `modes/rain.py`
-  importa `curses` só para capturar `curses.error` ao redor dessa escrita,
-  replicando o comportamento pré-split; não generalize esse padrão (nem o
-  `import curses`) para outros modos sem necessidade.
+- Um modo nunca chama `curses` diretamente nem acessa `app.stdscr` — passe
+  sempre por `app.add_char()`/`app.get_color()`/`app.get_contrast_color()`.
 
 ## Alterações comuns
 
 - **Novo tema:** acrescente 8 cores a `COLOR_PALETTE` (`core/palette.py`),
   exponha-o nas escolhas da CLI (isso já acontece automaticamente via
   `core.cli.parse_args()`) e atualize o README. Inclua-o em
-  `RAINBOW_SEQUENCE` somente se ele fizer sentido no ciclo arco-íris.
+  `RAINBOW_SEQUENCE` somente se ele fizer sentido no ciclo arco-íris. Não
+  precisa mexer em `core/color.py` — `theme_gradient_stops()` deriva o
+  gradiente automaticamente das 8 novas entradas.
 - **Ajuste de estética do Rain:** prefira alterar `RainMode._random_speed`,
   `_random_trail_length`, `_update_column` ou `_respawn_column`; não misture
   estado de animação com `_draw`.
 - **Novo visualizador:** crie um arquivo em `modes/`, implemente uma classe
   que estenda `modes.base.Mode` (`reset(app)`, `render(app)`), e registre-a
   em `MODE_CLASSES`/`MODE_ORDER` (`modes/__init__.py`). Reuse
-  `app.base_speed`, `app.density` e `app.get_color_attr()` para manter os
+  `app.base_speed`, `app.density` e `app.get_color()` para manter os
   controles consistentes com os outros modos.
 - **Novo argumento:** implemente-o em `core.cli.parse_args()`, passe-o por
   `core.cli._main()` a `App`, e documente-o no README.
+- **Mexeu em `core/color.py` ou `core/palette.py`:** rode
+  `python3 -m unittest discover -s tests -t .` antes de validar
+  manualmente — é rápido e pega regressão de gradiente/fallback sem
+  precisar abrir um terminal.
 
 ## Limites conhecidos
 

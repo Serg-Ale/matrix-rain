@@ -5,7 +5,6 @@ updated as columns fall, then drawn in bulk each frame. No horizontal
 flickering, long-persistence trails.
 """
 
-import curses
 import random
 from dataclasses import dataclass
 
@@ -192,12 +191,7 @@ class RainMode(Mode):
                 if char == ' ':
                     continue
 
-                try:
-                    attr = app.get_color_attr(brightness, x)
-                    app.stdscr.addstr(y, x, char, attr)
-                except curses.error:
-                    # Ignore errors at screen boundaries
-                    pass
+                app.add_char(y, x, char, app.get_color(brightness, x))
 
     def render(self, app):
         for col in self.columns:

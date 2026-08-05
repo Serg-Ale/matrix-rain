@@ -99,7 +99,7 @@ class NetworkMode(Mode):
         step = 0
         while True:
             depth = start_z + (end_z - start_z) * (step / float(steps))
-            app.add_char(y0, x0, char, app.get_color_attr(self._brightness(depth), x0))
+            app.add_char(y0, x0, char, app.get_color(self._brightness(depth), x0))
             if x0 == x1 and y0 == y1:
                 break
             twice_error = 2 * error
@@ -125,8 +125,8 @@ class NetworkMode(Mode):
         branch_z = min(1.0, ((start_z + end_z) / 2.0) + 0.16)
 
         self._draw_line(app, (mid_x, mid_y), (branch_x, branch_y), branch_z, branch_z * 0.8, '.')
-        app.add_char(mid_y, mid_x, '+', app.get_color_attr(max(1, self._brightness(branch_z) - 2), mid_x))
-        app.add_char(branch_y, branch_x, 'o', app.get_color_attr(self._brightness(branch_z), branch_x))
+        app.add_char(mid_y, mid_x, '+', app.get_color(max(1, self._brightness(branch_z) - 2), mid_x))
+        app.add_char(branch_y, branch_x, 'o', app.get_color(self._brightness(branch_z), branch_x))
 
     def _fill_triangle(self, app, first, second, third):
         """Fill a projected network face with a sparse complementary texture."""
@@ -139,7 +139,7 @@ class NetworkMode(Mode):
             return ((point[0] - line_end[0]) * (line_start[1] - line_end[1]) -
                     (line_start[0] - line_end[0]) * (point[1] - line_end[1]))
 
-        attr = app.get_contrast_attr()
+        attr = app.get_contrast_color()
         for y in range(min_y, max_y + 1, 2):
             for x in range(min_x, max_x + 1, 2):
                 point = (x, y)
@@ -156,7 +156,7 @@ class NetworkMode(Mode):
         for star in self.stars:
             star_x, star_y = self._project(app, star[0], star[1], star[2])
             char = '*' if star[2] > 0.82 else '+' if star[2] > 0.52 else '.'
-            app.add_char(star_y, star_x, char, app.get_color_attr(self._brightness(star[2]), star_x))
+            app.add_char(star_y, star_x, char, app.get_color(self._brightness(star[2]), star_x))
 
         count = len(self.nodes)
         edges = set()
@@ -194,9 +194,9 @@ class NetworkMode(Mode):
             packet_x = int(node_point[0] + (target_point[0] - node_point[0]) * packet_progress)
             packet_y = int(node_point[1] + (target_point[1] - node_point[1]) * packet_progress)
             packet_z = node[2] + (target[2] - node[2]) * packet_progress
-            app.add_char(packet_y, packet_x, '*', app.get_color_attr(max(1, self._brightness(packet_z) - 2), packet_x))
+            app.add_char(packet_y, packet_x, '*', app.get_color(max(1, self._brightness(packet_z) - 2), packet_x))
 
         for node in self.nodes:
             node_x, node_y = self._project(app, node[0], node[1], node[2])
             marker = '@' if node[2] > 0.78 else 'O' if node[2] > 0.45 else 'o'
-            app.add_char(node_y, node_x, marker, app.get_color_attr(self._brightness(node[2]), node_x))
+            app.add_char(node_y, node_x, marker, app.get_color(self._brightness(node[2]), node_x))

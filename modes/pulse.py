@@ -75,8 +75,8 @@ class PulseMode(Mode):
                 else:
                     char = MATRIX_CHARS[(x * 7 + y * 3) % len(MATRIX_CHARS)]
 
-                attr = app.get_color_attr(brightness, x)
+                attr = app.get_color(brightness, x)
                 app.add_char(y, x, char, attr)
 
         # Faint centre pulse — just a couple of chars.
-        app.add_char(center_y, center_x, '#', app.get_color_attr(0, center_x))
+        app.add_char(center_y, center_x, '#', app.get_color(0, center_x))

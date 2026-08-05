@@ -1,10 +1,13 @@
-"""256-color palette definitions.
+"""256-color palette definitions, and the true-color gradient derived from
+them.
 
-This is the pre-true-color engine: fixed 8-shade gradients addressed as
-xterm 256-color indices. True color with automatic fallback to this
-palette is ticket #3 — this module stays as the fallback target once that
-lands, so its shape (8 shades per theme, index 0 = white head) is a
-contract other code depends on, not just current behavior.
+Each theme's `COLOR_PALETTE` entry is 8 xterm 256-color indices, hand-picked
+to look good even without true color — that hasn't changed. What changed
+(ticket #3) is that these 8 indices are no longer the only colors a theme
+can render: `theme_gradient_stops()` converts them to RGB (core.color) and
+the color engine interpolates continuously between them in true-color
+terminals. The 256-color indices remain the deterministic fallback floor —
+see core.color.ansi_fg.
 
 256-color palette structure:
     0-7:     Standard colors (black, red, green, yellow, blue, magenta, cyan, white)
@@ -14,6 +17,10 @@ contract other code depends on, not just current behavior.
 
 Color cube formula: 16 + (36 x r) + (6 x g) + b, where r,g,b are 0-5
 """
+
+from functools import lru_cache
+
+from .color import index256_to_rgb
 
 # Number of brightness levels
 NUM_SHADES = 8
@@ -108,10 +115,28 @@ COLOR_PALETTE = {
 # Rainbow colors sequence
 RAINBOW_SEQUENCE = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
 
-# Curses color pair reserved for the network mode's complementary fill color.
-CONTRAST_PAIR = 60
+# 256-color index for the network mode's complementary fill color, per theme.
 CONTRAST_COLORS = {
     'green': 93, 'red': 51, 'blue': 226, 'cyan': 196, 'magenta': 46,
     'yellow': 27, 'white': 39, 'orange': 33, 'pink': 51, 'ice': 201,
     'violet': 226,
 }
+
+
+@lru_cache(maxsize=None)
+def theme_gradient_stops(theme_name: str):
+    """RGB control points for a theme's gradient.
+
+    Derived from the theme's existing 8 COLOR_PALETTE indices — same 8
+    anchor colors as before, just expressed as continuous RGB so true-color
+    mode can interpolate between them instead of only ever showing exactly
+    8 xterm-256 colors. Unknown theme names fall back to 'green', matching
+    COLOR_PALETTE.get's existing behavior elsewhere in this module.
+    """
+    indices = COLOR_PALETTE.get(theme_name, COLOR_PALETTE['green'])
+    return tuple(index256_to_rgb(index) for index in indices)
+
+
+def contrast_rgb(theme_name: str):
+    """RGB for the network mode's complementary fill color."""
+    return index256_to_rgb(CONTRAST_COLORS.get(theme_name, 51))
