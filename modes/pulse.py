@@ -17,6 +17,16 @@ from .base import Mode
 _WASH_DIM_FACTOR = 0.5
 
 
+def _radial_distance(x, y, center_x, center_y):
+    """Distance from (x, y) to the pulse center, compensated for terminal
+    cells being roughly twice as tall as they are wide (so rings/wash read
+    as circular instead of oval). Shared by the wash fill and the ring
+    math below — same ellipse, two different uses of the distance."""
+    dx = (x - center_x) / 2.0
+    dy = y - center_y
+    return math.sqrt(dx * dx + dy * dy)
+
+
 class PulseMode(Mode):
     name = 'pulse'
 
@@ -34,9 +44,7 @@ class PulseMode(Mode):
         breath = self.phase / max_radius
         for y in range(app.height):
             for x in range(app.width):
-                dx = (x - center_x) / 2.0
-                dy = y - center_y
-                distance = math.sqrt(dx * dx + dy * dy) / max_radius
+                distance = _radial_distance(x, y, center_x, center_y) / max_radius
                 t = min(1.0, max(0.0, 0.55 + distance * 0.4 - breath * 0.15))
                 rgb = app.get_background_rgb(t, x)
                 app.add_background(y, x, color_engine.dim(rgb, _WASH_DIM_FACTOR))
@@ -63,9 +71,7 @@ class PulseMode(Mode):
 
         for y in range(height):
             for x in range(0, width, 2):
-                dx = (x - center_x) / 2.0
-                dy = y - center_y
-                distance = math.sqrt(dx * dx + dy * dy)
+                distance = _radial_distance(x, y, center_x, center_y)
 
                 # Find nearest ring delta.
                 nearest_delta = abs(distance - ring_radii[0])

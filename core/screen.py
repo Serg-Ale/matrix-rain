@@ -74,7 +74,12 @@ class Screen:
         out = [_move(0, 0)]
         for y in range(self.height):
             out.append(_move(y, 0))
-            last_bg_attr = None
+            # Tracks the background color actually active on the terminal
+            # right now (None means "default/reset") — one meaning, kept
+            # in sync by every branch below: a character write always
+            # resets it (via _RESET_BG), a bg-only run sets it, and a
+            # blank cell resets it if something was active.
+            active_bg = None
             for x in range(self.width):
                 if y == self.height - 1 and x == self.width - 1:
                     # The bottom-right corner: writing here makes most
@@ -105,20 +110,20 @@ class Screen:
                         prefix += _CSI + '7m'
                     out.append(prefix)
                     out.append(char)
-                    last_bg_attr = None
+                    active_bg = None
                     continue
 
                 bg_rgb = self._bg[y][x]
                 if bg_rgb is not None:
-                    if bg_rgb != last_bg_attr:
+                    if bg_rgb != active_bg:
                         out.append(color_engine.ansi_bg(bg_rgb, truecolor))
-                        last_bg_attr = bg_rgb
+                        active_bg = bg_rgb
                     out.append(' ')
                     continue
 
-                if last_bg_attr is not None:
+                if active_bg is not None:
                     out.append(_RESET)
-                    last_bg_attr = None
+                    active_bg = None
                 out.append(' ')
 
         out.append(_RESET)
