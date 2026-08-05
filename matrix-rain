@@ -20,6 +20,7 @@ License: MIT
 import argparse
 import curses
 import locale
+import math
 import random
 import sys
 import time
@@ -134,10 +135,30 @@ COLOR_PALETTE = {
         238,  # 6: #444444 - dark gray
         235,  # 7: #262626 - very dark gray
     ],
+    'orange': [
+        15, 230, 223, 214, 208, 166, 94, 236,
+    ],
+    'pink': [
+        15, 225, 218, 205, 198, 162, 89, 236,
+    ],
+    'ice': [
+        15, 195, 159, 81, 39, 31, 24, 236,
+    ],
+    'violet': [
+        15, 189, 147, 99, 63, 57, 54, 236,
+    ],
 }
 
 # Rainbow colors sequence
 RAINBOW_SEQUENCE = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
+VISUALIZER_MODES = ['rain', 'pulse', 'network']
+CONTRAST_PAIR = 60
+NETWORK_SPEED_SCALE = 0.2
+CONTRAST_COLORS = {
+    'green': 93, 'red': 51, 'blue': 226, 'cyan': 196, 'magenta': 46,
+    'yellow': 27, 'white': 39, 'orange': 33, 'pink': 51, 'ice': 201,
+    'violet': 226,
+}
 
 
 @dataclass
@@ -164,6 +185,15 @@ class MatrixRain:
         self.screensaver = screensaver
         self.rainbow = rainbow
         self.frame_count = 0
+        self.panel_visible = not screensaver
+        self.status_message = 'Ready — customize while it runs'
+        self.contrast_colors_available = False
+        self.visualizer_mode = 'rain'
+        self.pulse_phase = 0.0
+        self.network_nodes: List[List[float]] = []
+        self.network_stars: List[List[float]] = []
+        self.network_frame = 0
+        self.network_tempo = 1.0
         
         # Get terminal dimensions
         self.height, self.width = stdscr.getmaxyx()
@@ -199,6 +229,7 @@ class MatrixRain:
         
     def _setup_colors(self):
         """Initialize color pairs using the 256-color palette."""
+        self.contrast_colors_available = False
         # Get the color palette for the selected theme
         palette = COLOR_PALETTE.get(self.color_name, COLOR_PALETTE['green'])
         
@@ -223,6 +254,12 @@ class MatrixRain:
                     curses.init_pair(pair_num, color_idx, -1)
                 except curses.error:
                     pass
+
+        try:
+            curses.init_pair(CONTRAST_PAIR, CONTRAST_COLORS.get(self.color_name, 51), -1)
+            self.contrast_colors_available = True
+        except curses.error:
+            pass
     
     def _setup_fallback_colors(self):
         """Fallback color setup for terminals without 256-color support."""
@@ -261,6 +298,31 @@ class MatrixRain:
                 spawn_delay=random.randint(0, 10),  # Short initial delays for quick start
             )
             self.columns.append(col)
+
+        self._apply_density()
+
+    def _clear_column(self, x: int):
+        """Remove an inactive stream and its persisted trail."""
+        for y in range(self.height):
+            self.char_grid[y][x] = ' '
+            self.brightness_grid[y][x] = NUM_SHADES + 1
+
+    def _apply_density(self):
+        """Apply density immediately by selecting the active streams."""
+        if not self.columns:
+            return
+
+        active_count = max(1, int(round(len(self.columns) * self.density / 10.0)))
+        active_indexes = set(random.sample(range(len(self.columns)), active_count))
+        for index, col in enumerate(self.columns):
+            active = index in active_indexes
+            if col.active and not active:
+                self._clear_column(col.x)
+            elif not col.active and active:
+                col.head_y = -random.randint(1, max(2, self.height // 2))
+                col.last_head_y = -1
+                col.spawn_delay = random.randint(0, 10)
+            col.active = active
     
     def _random_speed(self) -> float:
         """Generate a random speed based on base speed setting."""
@@ -277,6 +339,14 @@ class MatrixRain:
     def _random_char(self) -> str:
         """Get a random Matrix character."""
         return random.choice(MATRIX_CHARS)
+
+    def _add_char(self, y: int, x: int, char: str, attr: int = 0):
+        """Draw one safe terminal cell for the non-rain visualizers."""
+        if 0 <= y < self.height and 0 <= x < self.width:
+            try:
+                self.stdscr.addstr(y, x, char, attr)
+            except curses.error:
+                pass
     
     def _get_color_attr(self, brightness: int, column_x: int = 0) -> int:
         """Get the curses color attribute for a given brightness level."""
@@ -301,9 +371,18 @@ class MatrixRain:
             attr |= curses.A_BOLD
         
         return attr
+
+    def _get_contrast_attr(self) -> int:
+        """Return a complementary fill color, or a readable fallback."""
+        if self.contrast_colors_available:
+            return curses.color_pair(CONTRAST_PAIR) | curses.A_DIM
+        return curses.A_REVERSE
     
     def _update_column(self, col: Column):
         """Update a single column's state."""
+        if not col.active:
+            return
+
         # Handle spawn delay
         if col.spawn_delay > 0:
             col.spawn_delay -= 1
@@ -396,6 +475,516 @@ class MatrixRain:
                 except curses.error:
                     # Ignore errors at screen boundaries
                     pass
+
+    def _draw_pulse(self):
+        """Render bright rings expanding through darkness with a trailing fade."""
+        center_x = self.width // 2
+        center_y = self.height // 2
+        max_radius = math.sqrt((self.width / 2.0) ** 2 + (self.height / 2.0) ** 2)
+        if max_radius < 4:
+            max_radius = 4
+
+        ring_count = 2 + (self.density // 2)
+
+        self.pulse_phase = (self.pulse_phase + self.base_speed * 0.75) % max_radius
+
+        # Non-linear spacing: rings bunched near center, wider near edge.
+        ring_radii = []
+        for i in range(ring_count):
+            normalized = ((self.pulse_phase + i * (max_radius / ring_count)) % max_radius) / max_radius
+            ring_radii.append((normalized ** 2.5) * max_radius)
+
+        for y in range(self.height):
+            for x in range(0, self.width, 2):
+                dx = (x - center_x) / 2.0
+                dy = y - center_y
+                distance = math.sqrt(dx * dx + dy * dy)
+
+                # Find nearest ring delta.
+                nearest_delta = abs(distance - ring_radii[0])
+                for ri in range(1, ring_count):
+                    d = abs(distance - ring_radii[ri])
+                    if d < nearest_delta:
+                        nearest_delta = d
+
+                # Sharp white core → fast fade into black.
+                if nearest_delta < 0.25:
+                    brightness = 0
+                elif nearest_delta < 0.5:
+                    brightness = 1
+                elif nearest_delta < 0.9:
+                    brightness = 2
+                elif nearest_delta < 1.4:
+                    brightness = 3
+                elif nearest_delta < 2.0:
+                    brightness = 4
+                elif nearest_delta < 2.8:
+                    brightness = 5
+                elif nearest_delta < 3.8:
+                    brightness = 6
+                elif nearest_delta < 5.0:
+                    brightness = 7
+                else:
+                    continue
+
+                # Character: bright core is a symbol, fading trail is sparse.
+                if brightness <= 1:
+                    char = '*' if int(distance + y) % 3 else '@'
+                elif brightness <= 3:
+                    char = '.' if (x + y) % 3 else ':'
+                else:
+                    char = MATRIX_CHARS[(x * 7 + y * 3) % len(MATRIX_CHARS)]
+
+                attr = self._get_color_attr(brightness, x)
+                self._add_char(y, x, char, attr)
+
+        # Faint centre pulse — just a couple of chars.
+        self._add_char(center_y, center_x, '#', self._get_color_attr(0, center_x))
+
+    def _init_network(self):
+        """Create a 3D field of nodes and background data points."""
+        self.network_frame = 0
+        node_count = max(8, self.density * 2 + 4)
+        self.network_nodes = []
+        for _ in range(node_count):
+            self.network_nodes.append([
+                random.uniform(-0.85, 0.85),  # x in world space
+                random.uniform(-0.85, 0.85),  # y in world space
+                random.uniform(0.18, 1.0),    # z: far to near
+                random.choice((-1, 1)) * random.uniform(0.12, 0.34),
+                random.choice((-1, 1)) * random.uniform(0.08, 0.24),
+                random.uniform(0.04, 0.16),
+            ])
+        self.network_stars = [
+            [random.uniform(-1.0, 1.0), random.uniform(-1.0, 1.0), random.uniform(0.03, 1.0), random.uniform(0.10, 0.32)]
+            for _ in range(max(80, self.density * 28))
+        ]
+
+    def _project_network_point(self, x: float, y: float, z: float) -> Tuple[int, int]:
+        """Project a world-space point with z-depth onto the terminal plane."""
+        perspective = 0.35 + z
+        screen_x = int((self.width / 2.0) + x * (self.width / 2.0) * perspective)
+        screen_y = int((self.height / 2.0) + y * (self.height / 2.0) * perspective)
+        return screen_x, screen_y
+
+    def _network_brightness(self, z: float) -> int:
+        """Map depth to the palette: distant dots are dark, near dots glow."""
+        return max(1, min(7, 7 - int(z * 5)))
+
+    def _update_network(self):
+        """Move 3D nodes and pull the background point cloud toward the viewer."""
+        if not self.network_nodes:
+            self._init_network()
+
+        self.network_frame += 1
+        motion_speed = self.base_speed * NETWORK_SPEED_SCALE * self.network_tempo
+
+        for node in self.network_nodes:
+            # A small velocity drift avoids predictable billiard-ball paths.
+            node[3] = min(0.42, max(-0.42, node[3] + random.uniform(-0.018, 0.018)))
+            node[4] = min(0.30, max(-0.30, node[4] + random.uniform(-0.012, 0.012)))
+            node[0] += node[3] * motion_speed
+            node[1] += node[4] * motion_speed
+            node[2] += node[5] * motion_speed
+            if abs(node[0]) > 0.95:
+                node[3] *= -1
+                node[0] = min(0.95, max(-0.95, node[0]))
+            if abs(node[1]) > 0.95:
+                node[4] *= -1
+                node[1] = min(0.95, max(-0.95, node[1]))
+            if node[2] > 1.0:
+                node[2] = 0.15
+
+        for star in self.network_stars:
+            star[2] += star[3] * motion_speed * 0.35
+            if star[2] > 1.0:
+                star[0] = random.uniform(-1.0, 1.0)
+                star[1] = random.uniform(-1.0, 1.0)
+                star[2] = 0.03
+
+    def _draw_network_line(self, start: Tuple[int, int], end: Tuple[int, int], start_z: float, end_z: float, char: str = ':'):
+        """Draw a connection with a depth-based color gradient."""
+        x0, y0 = start
+        x1, y1 = end
+        dx, dy = abs(x1 - x0), -abs(y1 - y0)
+        step_x = 1 if x0 < x1 else -1
+        step_y = 1 if y0 < y1 else -1
+        error = dx + dy
+        steps = max(1, dx + abs(dy))
+        step = 0
+        while True:
+            depth = start_z + (end_z - start_z) * (step / float(steps))
+            self._add_char(y0, x0, char, self._get_color_attr(self._network_brightness(depth), x0))
+            if x0 == x1 and y0 == y1:
+                break
+            twice_error = 2 * error
+            if twice_error >= dy:
+                error += dy
+                x0 += step_x
+            if twice_error <= dx:
+                error += dx
+                y0 += step_y
+            step += 1
+
+    def _draw_network_branch(self, start: Tuple[int, int], end: Tuple[int, int], start_z: float, end_z: float, index: int):
+        """Add a perpendicular branch so connection topology is easier to read."""
+        mid_x = (start[0] + end[0]) // 2
+        mid_y = (start[1] + end[1]) // 2
+        delta_x = end[0] - start[0]
+        delta_y = end[1] - start[1]
+        length = max(1.0, (delta_x ** 2 + delta_y ** 2) ** 0.5)
+        direction = -1 if index % 2 else 1
+        branch_length = 2 + (index % 4)
+        branch_x = int(mid_x + ((-delta_y / length) * branch_length * direction))
+        branch_y = int(mid_y + ((delta_x / length) * branch_length * direction))
+        branch_z = min(1.0, ((start_z + end_z) / 2.0) + 0.16)
+
+        self._draw_network_line((mid_x, mid_y), (branch_x, branch_y), branch_z, branch_z * 0.8, '.')
+        self._add_char(mid_y, mid_x, '+', self._get_color_attr(max(1, self._network_brightness(branch_z) - 2), mid_x))
+        self._add_char(branch_y, branch_x, 'o', self._get_color_attr(self._network_brightness(branch_z), branch_x))
+
+    def _fill_network_triangle(self, first: Tuple[int, int], second: Tuple[int, int], third: Tuple[int, int]):
+        """Fill a projected network face with a sparse complementary texture."""
+        min_x = max(0, min(first[0], second[0], third[0]))
+        max_x = min(self.width - 1, max(first[0], second[0], third[0]))
+        min_y = max(0, min(first[1], second[1], third[1]))
+        max_y = min(self.height - 1, max(first[1], second[1], third[1]))
+
+        def edge_value(point: Tuple[int, int], line_start: Tuple[int, int], line_end: Tuple[int, int]) -> int:
+            return ((point[0] - line_end[0]) * (line_start[1] - line_end[1]) -
+                    (line_start[0] - line_end[0]) * (point[1] - line_end[1]))
+
+        attr = self._get_contrast_attr()
+        for y in range(min_y, max_y + 1, 2):
+            for x in range(min_x, max_x + 1, 2):
+                point = (x, y)
+                values = (
+                    edge_value(point, first, second), edge_value(point, second, third),
+                    edge_value(point, third, first)
+                )
+                if not (min(values) < 0 < max(values)):
+                    self._add_char(y, x, '·', attr)
+
+    def _draw_network(self):
+        """Render a layered network with perspective, gradient links, and packets."""
+        self._update_network()
+        for star in self.network_stars:
+            star_x, star_y = self._project_network_point(star[0], star[1], star[2])
+            char = '*' if star[2] > 0.82 else '+' if star[2] > 0.52 else '.'
+            self._add_char(star_y, star_x, char, self._get_color_attr(self._network_brightness(star[2]), star_x))
+
+        count = len(self.network_nodes)
+        edges = set()
+        triangles = set()
+        for index, node in enumerate(self.network_nodes):
+            nearest = sorted(
+                range(count),
+                key=lambda other: (node[0] - self.network_nodes[other][0]) ** 2 +
+                (node[1] - self.network_nodes[other][1]) ** 2 +
+                ((node[2] - self.network_nodes[other][2]) * 0.55) ** 2
+            )[1:3]
+            for target_index in nearest:
+                edges.add(tuple(sorted((index, target_index))))
+            if len(nearest) == 2:
+                triangles.add(tuple(sorted((index, nearest[0], nearest[1]))))
+
+        projected_nodes = [self._project_network_point(node[0], node[1], node[2]) for node in self.network_nodes]
+        for first_index, second_index, third_index in sorted(triangles)[:self.density + 2]:
+            self._fill_network_triangle(
+                projected_nodes[first_index], projected_nodes[second_index], projected_nodes[third_index]
+            )
+
+        for edge_index, (source_index, target_index) in enumerate(sorted(edges)):
+            node = self.network_nodes[source_index]
+            target = self.network_nodes[target_index]
+            node_point = projected_nodes[source_index]
+            target_point = projected_nodes[target_index]
+            self._draw_network_line(node_point, target_point, node[2], target[2], '=')
+            self._draw_network_branch(node_point, target_point, node[2], target[2], edge_index)
+            if edge_index % 3 == 0:
+                self._draw_network_branch(target_point, node_point, target[2], node[2], edge_index + 1)
+            packet_progress = (self.network_frame * self.base_speed * NETWORK_SPEED_SCALE * self.network_tempo * 0.09 + edge_index / float(len(edges))) % 1.0
+            if edge_index % 2:
+                packet_progress = 1.0 - packet_progress
+            packet_x = int(node_point[0] + (target_point[0] - node_point[0]) * packet_progress)
+            packet_y = int(node_point[1] + (target_point[1] - node_point[1]) * packet_progress)
+            packet_z = node[2] + (target[2] - node[2]) * packet_progress
+            self._add_char(packet_y, packet_x, '*', self._get_color_attr(max(1, self._network_brightness(packet_z) - 2), packet_x))
+
+        for node in self.network_nodes:
+            node_x, node_y = self._project_network_point(node[0], node[1], node[2])
+            marker = '@' if node[2] > 0.78 else 'O' if node[2] > 0.45 else 'o'
+            self._add_char(node_y, node_x, marker, self._get_color_attr(self._network_brightness(node[2]), node_x))
+
+    def _init_scanner(self):
+        """Place slowly drifting targets inside the tactical radar field."""
+        target_count = max(14, self.density * 5)
+        self.scanner_targets = []
+        while len(self.scanner_targets) < target_count:
+            x, y = random.uniform(-0.88, 0.88), random.uniform(-0.88, 0.88)
+            if (x * x) + (y * y) <= 0.82:
+                self.scanner_targets.append([
+                    x, y, random.uniform(0.03, 0.18),
+                    random.choice((-1, 1)) * random.uniform(0.15, 0.45),
+                    random.choice((-1, 1)) * random.uniform(0.10, 0.32),
+                ])
+        ground_y = max(5, self.height - 3)
+        layouts = [
+            (0.08, 0.18, 'BLD-01'), (0.23, 0.31, 'TWR-02'),
+            (0.40, 0.24, 'ARC-03'), (0.58, 0.38, 'TWR-04'),
+            (0.76, 0.20, 'BLD-05'), (0.91, 0.29, 'ARC-06'),
+        ]
+        self.scanner_structures = []
+        for position, height_ratio, label in layouts:
+            building_width = max(4, int(self.width * 0.07))
+            building_height = max(3, int(self.height * height_ratio))
+            center_x = int(self.width * position)
+            roof_y = max(3, ground_y - building_height)
+            self.scanner_structures.append([center_x, roof_y, label, 0.0, building_width, ground_y])
+
+    def _draw_scanner_line(self, start: Tuple[int, int], end: Tuple[int, int], brightness: int, char: str = '.'):
+        """Draw a radar spoke or beam without coupling it to network state."""
+        x0, y0 = start
+        x1, y1 = end
+        dx, dy = abs(x1 - x0), -abs(y1 - y0)
+        step_x = 1 if x0 < x1 else -1
+        step_y = 1 if y0 < y1 else -1
+        error = dx + dy
+        while True:
+            self._add_char(y0, x0, char, self._get_color_attr(brightness, x0))
+            if x0 == x1 and y0 == y1:
+                break
+            twice_error = 2 * error
+            if twice_error >= dy:
+                error += dy
+                x0 += step_x
+            if twice_error <= dx:
+                error += dx
+                y0 += step_y
+
+    def _draw_scanner_text(self, y: int, x: int, text: str, brightness: int = 4):
+        """Write compact HUD text while keeping edge writes safe."""
+        for offset, char in enumerate(text):
+            self._add_char(y, x + offset, char, self._get_color_attr(brightness, x + offset))
+
+    def _draw_scanner_terrain(self):
+        """Draw a low-contrast ASCII skyline that creates real scan targets."""
+        if not self.scanner_structures:
+            return
+
+        ground_y = int(self.scanner_structures[0][5])
+        for x in range(self.width):
+            self._add_char(ground_y, x, '_', self._get_color_attr(7, x))
+        for structure in self.scanner_structures:
+            center_x, roof_y = int(structure[0]), int(structure[1])
+            building_width, building_ground = int(structure[4]), int(structure[5])
+            left = center_x - (building_width // 2)
+            right = center_x + (building_width // 2)
+            for x in range(left, right + 1):
+                self._add_char(roof_y, x, '=', self._get_color_attr(6, x))
+            for y in range(roof_y + 1, building_ground):
+                for x in range(left, right + 1):
+                    if x in (left, right):
+                        char, brightness = '|', 6
+                    elif (x + y) % 4 == 0:
+                        char, brightness = ':', 7
+                    else:
+                        char, brightness = '#', 7
+                    self._add_char(y, x, char, self._get_color_attr(brightness, x))
+            # An antenna is a second, smaller structural point above each roof.
+            self._add_char(roof_y - 1, center_x, '|', self._get_color_attr(5, center_x))
+            self._add_char(roof_y - 2, center_x, '^', self._get_color_attr(6, center_x))
+
+    def _draw_scanner(self):
+        """Render a rotating tactical radar with target trails and a compact HUD."""
+        center_x, center_y = self.width // 2, self.height // 2
+        # Use the full terminal as an elliptical scope rather than a small centre widget.
+        radius_y = max(3, (self.height // 2) - 1)
+        radius_x = max(4, (self.width // 2) - 2)
+        self.scanner_angle = (self.scanner_angle + self.base_speed * 0.12) % (math.pi * 2)
+
+        # Concentric rings make the scanner feel like an instrument, not a grid.
+        for ring in (0.25, 0.50, 0.75, 1.0):
+            for step in range(0, 144):
+                angle = (math.pi * 2 * step) / 144.0
+                x = int(center_x + math.cos(angle) * radius_x * ring)
+                y = int(center_y + math.sin(angle) * radius_y * ring)
+                self._add_char(y, x, '.', self._get_color_attr(7, x))
+
+        self._draw_scanner_terrain()
+
+        # Radial reference lines and a five-line sweep beam.
+        for step in range(8):
+            angle = (math.pi * 2 * step) / 8.0
+            endpoint = (int(center_x + math.cos(angle) * radius_x), int(center_y + math.sin(angle) * radius_y))
+            self._draw_scanner_line((center_x, center_y), endpoint, 7)
+        for offset, brightness in ((-0.12, 5), (-0.06, 3), (0.0, 1), (0.06, 3), (0.12, 5)):
+            angle = self.scanner_angle + offset
+            endpoint = (int(center_x + math.cos(angle) * radius_x), int(center_y + math.sin(angle) * radius_y))
+            self._draw_scanner_line((center_x, center_y), endpoint, brightness, '-' if offset == 0.0 else '.')
+
+        locks = 0
+        for target in self.scanner_targets:
+            target[0] += target[3] * self.base_speed * 0.03
+            target[1] += target[4] * self.base_speed * 0.03
+            radial_distance = (target[0] * target[0]) + (target[1] * target[1])
+            if radial_distance > 0.88:
+                target[3] *= -1
+                target[4] *= -1
+                scale = math.sqrt(0.88 / radial_distance)
+                target[0] *= scale
+                target[1] *= scale
+
+            target_angle = math.atan2(target[1], target[0])
+            angle_delta = abs((target_angle - self.scanner_angle + math.pi) % (math.pi * 2) - math.pi)
+            if angle_delta < 0.10:
+                target[2] = 1.0
+            else:
+                target[2] = max(0.02, target[2] - (0.006 * self.base_speed))
+
+            x = int(center_x + target[0] * radius_x)
+            y = int(center_y + target[1] * radius_y)
+            energy = target[2]
+            if energy > 0.82:
+                brightness, marker, locks = 0, '@', locks + 1
+            elif energy > 0.58:
+                brightness, marker = 2, 'O'
+            elif energy > 0.30:
+                brightness, marker = 4, 'o'
+            elif energy > 0.10:
+                brightness, marker = 6, '+'
+            else:
+                brightness, marker = 7, '.'
+
+            # Motion tail points away from the target and fades into the radar.
+            for tail in range(3, 0, -1):
+                tail_x = int(x - target[3] * tail * 2)
+                tail_y = int(y - target[4] * tail * 2)
+                self._add_char(tail_y, tail_x, '.', self._get_color_attr(min(7, brightness + tail), tail_x))
+            self._add_char(y, x, marker, self._get_color_attr(brightness, x))
+
+        structure_hits = 0
+        for structure in self.scanner_structures:
+            structure_x, structure_y = int(structure[0]), int(structure[1])
+            normalized_x = (structure_x - center_x) / float(max(1, radius_x))
+            normalized_y = (structure_y - center_y) / float(max(1, radius_y))
+            structure_angle = math.atan2(normalized_y, normalized_x)
+            angle_delta = abs((structure_angle - self.scanner_angle + math.pi) % (math.pi * 2) - math.pi)
+            if angle_delta < 0.075:
+                structure[3] = 1.0
+            else:
+                structure[3] = max(0.02, structure[3] - (0.004 * self.base_speed))
+
+            x, y = structure_x, structure_y
+            energy = structure[3]
+            if energy > 0.78:
+                brightness, marker, structure_hits = 0, '#', structure_hits + 1
+            elif energy > 0.38:
+                brightness, marker = 2, 'X'
+            else:
+                brightness, marker = 6, '+'
+            self._add_char(y, x, marker, self._get_color_attr(brightness, x))
+            if energy > 0.30:
+                self._draw_scanner_text(y - 1, x + 2, str(structure[2]), brightness)
+
+        self._add_char(center_y, center_x, '#', self._get_color_attr(0, center_x))
+        if self.height > 4 and self.width > 28:
+            self._draw_scanner_text(1, 2, 'RADAR // SECTOR 07', 3)
+            self._draw_scanner_text(2, 2, 'LOCKS:{0:02d}  STRUCT:{1:02d}  SWEEP:{2:03d}'.format(locks, structure_hits, int(math.degrees(self.scanner_angle))), 5)
+            self._draw_scanner_text(center_y - radius_y - 1, center_x - 1, 'N', 4)
+
+    def _cycle_visualizer(self):
+        """Switch to the next hacker-style visualizer."""
+        index = VISUALIZER_MODES.index(self.visualizer_mode)
+        self.visualizer_mode = VISUALIZER_MODES[(index + 1) % len(VISUALIZER_MODES)]
+        if self.visualizer_mode == 'network':
+            self._init_network()
+        self._show_status('Mode: {0}'.format(self.visualizer_mode.upper()))
+
+    def _show_status(self, message: str):
+        """Store the latest control action for the persistent panel."""
+        self.status_message = message
+
+    def _meter(self, value: int) -> str:
+        """Return a compact ten-step meter for the control panel."""
+        return '[' + ('#' * value) + ('.' * (10 - value)) + ']'
+
+    def _draw_control_panel(self):
+        """Draw a compact btop-inspired live-control overlay."""
+        panel_width = 43
+        panel_height = 11
+        if not self.panel_visible or self.height < panel_height + 1 or self.width < panel_width + 1:
+            return
+
+        x = self.width - panel_width - 1
+        y = self.height - panel_height - 1
+        theme = 'RAINBOW' if self.rainbow else self.color_name.upper()
+
+        def panel_row(content: str) -> str:
+            return '| ' + content[:39].ljust(39) + ' |'
+
+        rows = [
+            '+' + ('-' * (panel_width - 2)) + '+',
+            panel_row('       MATRIX RAIN // LIVE CONTROL'),
+            panel_row('Mode: {0:<8} Theme: {1}'.format(self.visualizer_mode.upper(), theme)),
+            panel_row('Speed:   {0} {1:>2}/10'.format(self._meter(int(round(self.base_speed * 10))), int(round(self.base_speed * 10)))),
+            panel_row('Density: {0} {1:>2}/10'.format(self._meter(self.density), self.density)),
+            '+' + ('-' * (panel_width - 2)) + '+',
+            panel_row(self.status_message),
+            panel_row('W/S or Up/Down : speed'),
+            panel_row('A/D or Left/Right : density'),
+            panel_row(',/. net:{0:.1f}x  M/T/R/P controls'.format(self.network_tempo) if self.visualizer_mode == 'network' else 'M mode  T theme  R rainbow  P hide'),
+            '+' + ('-' * (panel_width - 2)) + '+',
+        ]
+
+        try:
+            for offset, row in enumerate(rows):
+                attr = curses.A_REVERSE if offset in (0, 1, 5, 10) else curses.A_BOLD
+                self.stdscr.addstr(y + offset, x, row, attr)
+        except curses.error:
+            pass
+
+    def _change_speed(self, amount: int):
+        """Change speed live and keep every stream's relative variation."""
+        old_speed = int(round(self.base_speed * 10))
+        new_speed = min(10, max(1, old_speed + amount))
+        if new_speed == old_speed:
+            return
+
+        multiplier = (new_speed / 10.0) / self.base_speed
+        self.base_speed = new_speed / 10.0
+        for col in self.columns:
+            col.speed *= multiplier
+        self._show_status('Speed: {0}/10'.format(new_speed))
+
+    def _change_density(self, amount: int):
+        """Change the number of visible streams live."""
+        new_density = min(10, max(1, self.density + amount))
+        if new_density == self.density:
+            return
+
+        self.density = new_density
+        self._apply_density()
+        if self.visualizer_mode == 'network':
+            self._init_network()
+        count = sum(col.active for col in self.columns)
+        self._show_status('Density: {0}/10 ({1} rain streams)'.format(new_density, count))
+
+    def _change_network_tempo(self, amount: float):
+        """Set a network-only speed multiplier for deliberately slow scenes."""
+        new_tempo = min(1.0, max(0.1, round(self.network_tempo + amount, 1)))
+        if new_tempo == self.network_tempo:
+            return
+        self.network_tempo = new_tempo
+        self._show_status('Network tempo: {0:.1f}x'.format(new_tempo))
+
+    def _cycle_theme(self):
+        """Cycle normal color themes and leave rainbow mode."""
+        themes = list(COLOR_PALETTE.keys())
+        self.color_name = themes[(themes.index(self.color_name) + 1) % len(themes)]
+        self.rainbow = False
+        self._setup_colors()
+        self._show_status('Theme: {0}'.format(self.color_name))
     
     def _handle_resize(self):
         """Handle terminal resize."""
@@ -438,6 +1027,9 @@ class MatrixRain:
             elif new_width < old_width:
                 self.columns = [c for c in self.columns if c.x < new_width - 1]
             
+            self._apply_density()
+            if self.visualizer_mode == 'network':
+                self._init_network()
             self.stdscr.clear()
     
     def _check_input(self) -> bool:
@@ -447,8 +1039,34 @@ class MatrixRain:
             if key != -1:  # A key was pressed
                 if self.screensaver:
                     return True  # Exit on any key in screensaver mode
-                elif key == ord('q') or key == ord('Q') or key == 27:  # q or Escape
+                if key == ord('q') or key == ord('Q') or key == 27:  # q or Escape
                     return True
+                elif key in (curses.KEY_UP, ord('+'), ord('='), ord('w'), ord('W')):
+                    self._change_speed(1)
+                elif key in (curses.KEY_DOWN, ord('-'), ord('_'), ord('s'), ord('S')):
+                    self._change_speed(-1)
+                elif key in (curses.KEY_RIGHT, ord(']'), ord('d'), ord('D')):
+                    self._change_density(1)
+                elif key in (curses.KEY_LEFT, ord('['), ord('a'), ord('A')):
+                    self._change_density(-1)
+                elif key == ord('t') or key == ord('T'):
+                    self._cycle_theme()
+                elif key == ord('m') or key == ord('M'):
+                    self._cycle_visualizer()
+                elif self.visualizer_mode == 'network' and key == ord(','):
+                    self._change_network_tempo(-0.1)
+                elif self.visualizer_mode == 'network' and key == ord('.'):
+                    self._change_network_tempo(0.1)
+                elif key == ord('r') or key == ord('R'):
+                    self.rainbow = not self.rainbow
+                    message = 'Rainbow enabled' if self.rainbow else 'Theme: {0}'.format(self.color_name)
+                    self._show_status(message)
+                elif key == ord('h') or key == ord('H') or key == ord('?'):
+                    self.panel_visible = True
+                    self._show_status('Control panel shown')
+                elif key == ord('p') or key == ord('P'):
+                    self.panel_visible = not self.panel_visible
+                    self._show_status('Control panel shown' if self.panel_visible else 'Control panel hidden')
         except curses.error:
             pass
         return False
@@ -473,12 +1091,17 @@ class MatrixRain:
                 # Clear screen
                 self.stdscr.erase()
                 
-                # Update all columns
-                for col in self.columns:
-                    self._update_column(col)
-                
-                # Draw everything
-                self._draw()
+                # Update and draw the active visualizer.
+                if self.visualizer_mode == 'rain':
+                    for col in self.columns:
+                        self._update_column(col)
+                    self._draw()
+                elif self.visualizer_mode == 'pulse':
+                    self._draw_pulse()
+                elif self.visualizer_mode == 'network':
+                    self._draw_network()
+
+                self._draw_control_panel()
                 
                 # Refresh screen
                 self.stdscr.refresh()
@@ -508,7 +1131,7 @@ Examples:
   matrix-rain -S                  # Screensaver mode (exit on keypress)
   matrix-rain -c green -s 6 -d 9  # Fast, very dense green rain
 
-Colors available: green, red, blue, cyan, magenta, yellow, white, rainbow
+Colors available: green, red, blue, cyan, magenta, yellow, white, orange, pink, ice, violet, rainbow
 
 Press 'q' or Escape to exit (or any key in screensaver mode).
         '''
