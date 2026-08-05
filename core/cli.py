@@ -3,6 +3,8 @@
 import curses
 import sys
 
+from modes import MODE_ORDER
+
 from .app import App
 from .palette import COLOR_PALETTE
 
@@ -19,22 +21,34 @@ Examples:
   matrix-rain                     # Classic green Matrix rain
   matrix-rain -c cyan             # Cyan colored rain
   matrix-rain -c red -s 8         # Fast red rain
+  matrix-rain -m network          # Start straight in Network mode
   matrix-rain --rainbow           # Rainbow mode!
   matrix-rain -S                  # Screensaver mode (exit on keypress)
   matrix-rain -c green -s 6 -d 9  # Fast, very dense green rain
 
-Colors available: green, red, blue, cyan, magenta, yellow, white, orange, pink, ice, violet, rainbow
+Colors available: green, red, blue, cyan, magenta, yellow, white, orange, pink, ice, violet
+Modes available: {modes}
 
-Press 'q' or Escape to exit (or any key in screensaver mode).
-        '''
+Press 'q' or Escape to exit (or any key in screensaver mode). Press 'm' to
+cycle modes and 'h' for the full live-control panel once it's running.
+        '''.format(modes=', '.join(MODE_ORDER))
     )
 
     parser.add_argument(
         '-c', '--color',
         type=str,
         default='green',
-        choices=list(COLOR_PALETTE.keys()) + ['rainbow'],
+        choices=list(COLOR_PALETTE.keys()),
         help='Rain color (default: green)'
+    )
+
+    parser.add_argument(
+        '-m', '--mode',
+        type=str,
+        default=MODE_ORDER[0],
+        choices=MODE_ORDER,
+        help='Starting visualizer mode (default: {0}) — cycle live with the '
+             "'m' key".format(MODE_ORDER[0])
     )
 
     parser.add_argument(
@@ -74,18 +88,15 @@ def _main(stdscr, argv):
     """Entry point wrapped by curses."""
     args = parse_args(argv)
 
-    # Handle rainbow flag
-    rainbow = args.rainbow or args.color == 'rainbow'
-    color = 'green' if rainbow else args.color
-
     # Create and run the app
     app = App(
         stdscr,
-        color=color,
+        color=args.color,
+        mode=args.mode,
         speed=args.speed,
         density=args.density,
         screensaver=args.screensaver,
-        rainbow=rainbow,
+        rainbow=args.rainbow,
     )
     app.run()
 

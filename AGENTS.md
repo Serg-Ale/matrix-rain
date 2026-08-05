@@ -162,11 +162,12 @@ verificação manual em um terminal 256 cores:
 ## Arquitetura e fluxo de execução
 
 `core.cli.parse_args()` define a CLI. `core.cli.run()` trata o atalho
-`--help` sem precisar de TTY, converte `-c rainbow`/`-r` numa única
-configuração de arco-íris, e roda tudo dentro de `curses.wrapper()`. `App`
-(`core/app.py`) é instanciada uma vez por execução e mantém uma instância de
-cada modo registrado (`self.modes`) viva pelo processo inteiro — trocar de
-modo não destrói o estado do modo anterior (por isso o rain continua "caindo"
+`--help` sem precisar de TTY, e roda tudo dentro de `curses.wrapper()`. `App`
+(`core/app.py`) é instanciada uma vez por execução, com o modo inicial
+escolhido por `-m/--mode` (default: o primeiro de `MODE_ORDER`), e mantém uma
+instância de cada modo registrado (`self.modes`) viva pelo processo inteiro
+— trocar de modo não destrói o estado do modo anterior (por isso o rain
+continua "caindo"
 em segundo plano enquanto você olha o Network).
 
 Cada `Column` (em `modes/rain.py`) representa uma coluna independente de

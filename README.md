@@ -73,6 +73,10 @@ matrix-rain -c white
 # Rainbow mode!
 matrix-rain --rainbow
 
+# Start straight in a different visualizer (default: rain)
+matrix-rain -m pulse
+matrix-rain -m network
+
 # Adjust speed (1-10, default: 5)
 matrix-rain -s 8      # Faster
 matrix-rain -s 2      # Slower, more dramatic
@@ -87,7 +91,7 @@ matrix-rain -S
 # Combine options for custom experience
 matrix-rain -c green -s 6 -d 9      # Fast, very dense green
 matrix-rain -c cyan -s 3 -d 5 -S    # Slow cyan screensaver
-matrix-rain --rainbow -s 7 -d 8     # Fast dense rainbow
+matrix-rain -m network --rainbow -s 7 -d 8  # Fast dense rainbow network
 ```
 
 ## Command Line Options
@@ -95,11 +99,15 @@ matrix-rain --rainbow -s 7 -d 8     # Fast dense rainbow
 | Flag | Long Form | Description | Default |
 |------|-----------|-------------|---------|
 | `-c` | `--color` | Rain color theme | `green` |
+| `-m` | `--mode` | Starting visualizer (`rain`, `pulse`, `network`) | `rain` |
 | `-s` | `--speed` | Animation speed (1-10) | `5` |
 | `-d` | `--density` | Rain density (1-10) | `7` |
 | `-S` | `--screensaver` | Exit on any keypress | `off` |
 | `-r` | `--rainbow` | Rainbow color cycling mode | `off` |
 | `-h` | `--help` | Show help message | - |
+
+Rainbow mode is its own flag (`-r`/`--rainbow`), not a `--color` value — it
+cycles through every theme below rather than picking one.
 
 ### Available Colors
 
@@ -116,7 +124,6 @@ matrix-rain --rainbow -s 7 -d 8     # Fast dense rainbow
 | `pink` | Neon pink theme |
 | `ice` | Icy blue theme |
 | `violet` | Deep violet theme |
-| `rainbow` | Cycling through all colors |
 
 ## Controls
 

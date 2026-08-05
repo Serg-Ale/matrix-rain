@@ -20,7 +20,7 @@ from .screen import Screen
 class App:
     """Runs the visualizer: curses setup, mode dispatch, live controls."""
 
-    def __init__(self, stdscr, color: str = 'green', speed: int = 5,
+    def __init__(self, stdscr, color: str = 'green', mode: str = 'rain', speed: int = 5,
                  density: int = 7, screensaver: bool = False, rainbow: bool = False):
         self.stdscr = stdscr
         self.color_name = color
@@ -31,7 +31,7 @@ class App:
         self.frame_count = 0
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
-        self.active_mode = 'rain'
+        self.active_mode = mode if mode in MODE_ORDER else MODE_ORDER[0]
 
         # Get terminal dimensions
         self.height, self.width = stdscr.getmaxyx()
@@ -52,10 +52,14 @@ class App:
         # core/screen.py for why drawing bypasses curses entirely.
         self._setup_curses()
 
-        # Rain is the only mode that needs to be ready before the first
-        # frame — the others initialize lazily on activation/first update,
-        # same as before this module was split out.
+        # Rain always needs to be ready before the first frame — its state
+        # is tracked continuously regardless of the active mode (see
+        # handle_resize/change_density below). Network only resets on
+        # activation, same rule whether that happens here at startup or
+        # later via cycle_mode.
         self.modes['rain'].reset(self)
+        if self.active_mode == 'network':
+            self.modes['network'].reset(self)
 
     def _setup_curses(self):
         """Configure curses settings — input/resize/alt-screen only."""
