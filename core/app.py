@@ -31,6 +31,10 @@ class App:
         self.frame_count = 0
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
+        # core.cli's argparse choices already guarantee a valid mode for
+        # the CLI path — this fallback is for App's own sake as a public
+        # constructor (e.g. tests instantiating it directly), not a second
+        # enforcement of the same CLI validation.
         self.active_mode = mode if mode in MODE_ORDER else MODE_ORDER[0]
 
         # Get terminal dimensions
