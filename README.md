@@ -11,8 +11,9 @@ A beautiful terminal-based Matrix digital rain animation featuring authentic Jap
 - **Authentic Japanese Characters** - Half-width and full-width Katakana (ｦｱｲｳｴｵ / アイウエオ)
 - **8-Shade Color Gradients** - Smooth transitions from bright white head → vibrant color → fade to dark
 - **Glowing Head Effect** - White leading character with 3-character bright glow trail
-- **7 Color Themes** - Green, Red, Blue, Cyan, Magenta, Yellow, White
+- **11 Color Themes** - Classic and neon palettes, including Orange, Pink, Ice, and Violet
 - **Rainbow Mode** - Psychedelic cycling colors across columns
+- **4 Visualizer Modes** - Rain, Pulse, Network, and Scanner
 - **Adjustable Speed** - From slow cinematic (1) to blazing fast (10)
 - **Density Control** - From sparse (1) to very dense (10)
 - **Screensaver Mode** - Exit on any keypress
@@ -111,6 +112,10 @@ matrix-rain --rainbow -s 7 -d 8     # Fast dense rainbow
 | `magenta` | Purple/magenta theme |
 | `yellow` | Yellow/gold theme |
 | `white` | Grayscale theme |
+| `orange` | Warm amber theme |
+| `pink` | Neon pink theme |
+| `ice` | Icy blue theme |
+| `violet` | Deep violet theme |
 | `rainbow` | Cycling through all colors |
 
 ## Controls
@@ -121,6 +126,45 @@ matrix-rain --rainbow -s 7 -d 8     # Fast dense rainbow
 | `Escape` | Quit |
 | `Ctrl+C` | Quit |
 | Any key | Quit (in screensaver mode only) |
+
+### Live Customization
+
+Outside screensaver mode, adjust the animation without restarting it:
+
+| Key | Action |
+|-----|--------|
+| `W` / `↑` / `+` | Increase speed |
+| `S` / `↓` / `-` | Decrease speed |
+| `D` / `→` / `]` | Increase density (more streams) |
+| `A` / `←` / `[` | Decrease density (fewer streams) |
+| `t` | Cycle through color themes |
+| `r` | Toggle rainbow mode |
+| `m` | Cycle visualizers: Rain, Pulse, Network |
+| `,` / `.` | Decrease/increase Network-only tempo (Network mode) |
+| `p` | Hide/show the live-control panel |
+| `h` / `?` | Show the control panel |
+
+The persistent, btop-inspired panel shows the selected theme plus speed and
+density meters. It is hidden automatically in screensaver mode and on terminals
+that are too small to render it safely.
+
+## Visualizer Modes
+
+Press `m` while running to cycle through the available hacker-style animations:
+
+| Mode | Visual |
+|------|--------|
+| `RAIN` | The classic falling Katakana rain |
+| `PULSE` | Expanding ASCII energy rings from the screen centre |
+| `NETWORK` | A 3D point cloud with branches, packets, and complementary filled faces |
+
+Your selected color theme, rainbow mode, speed, and density apply to every
+visualizer. Density changes the number of rain streams, pulse rings, or network
+nodes depending on the active mode.
+
+The Network visualizer is intentionally slowed down: global speed `10` matches
+the previous Network pace at global speed `2`. Use `,` and `.` to adjust its
+Network-only multiplier from `0.1x` through `1.0x`, in `0.1x` steps.
 
 ## Requirements
 
