@@ -150,8 +150,10 @@ antiga velocidade global 2.
   sua visibilidade.
 - Um modo nunca chama `curses` diretamente nem acessa `app.stdscr` fora dos
   helpers já expostos por `App` — exceção histórica: `RainMode._draw()`
-  escreve em `app.stdscr.addstr()` diretamente, replicando o comportamento
-  pré-split; não generalize esse padrão para outros modos sem necessidade.
+  escreve em `app.stdscr.addstr()` diretamente e por isso `modes/rain.py`
+  importa `curses` só para capturar `curses.error` ao redor dessa escrita,
+  replicando o comportamento pré-split; não generalize esse padrão (nem o
+  `import curses`) para outros modos sem necessidade.
 
 ## Alterações comuns
 
