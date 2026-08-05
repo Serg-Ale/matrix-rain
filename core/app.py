@@ -75,6 +75,25 @@ class App:
             return
         self.screen.set_cell(y, x, char, rgb, bold=bold, reverse=reverse)
 
+    def add_background(self, y: int, x: int, rgb):
+        """Queue a background-only fill for one cell — for a mode's own
+        depth/fill layer (e.g. Pulse's gradient wash) where there's no
+        foreground character, just color. A character drawn via add_char
+        always wins over this for the same cell."""
+        self.screen.set_bg(y, x, rgb)
+
+    def _resolve_theme(self, column_x: int) -> str:
+        """Which theme's gradient a cell should draw from — cycling
+        through RAINBOW_SEQUENCE by column when rainbow mode is on,
+        otherwise the active theme. Shared by get_color and
+        get_background_rgb so both branches of "what color is this",
+        quantized brightness or continuous t, agree on theme selection.
+        """
+        if self.rainbow:
+            theme_idx = (column_x + self.frame_count // 10) % len(RAINBOW_SEQUENCE)
+            return RAINBOW_SEQUENCE[theme_idx]
+        return self.color_name
+
     def get_color(self, brightness: int, column_x: int = 0):
         """Resolve a brightness level (0=brightest, up to NUM_SHADES-1) to
         a (rgb, bold, reverse) color for the current theme/rainbow state.
@@ -87,18 +106,23 @@ class App:
         if brightness >= NUM_SHADES:
             return (None, False, False)
 
-        if self.rainbow:
-            theme_idx = (column_x + self.frame_count // 10) % len(RAINBOW_SEQUENCE)
-            theme_name = RAINBOW_SEQUENCE[theme_idx]
-            bold = brightness <= 1
-        else:
-            theme_name = self.color_name
-            bold = brightness <= 2
-
+        theme_name = self._resolve_theme(column_x)
+        bold = brightness <= (1 if self.rainbow else 2)
         stops = theme_gradient_stops(theme_name)
         t = brightness / float(NUM_SHADES - 1)
         rgb = color_engine.gradient(stops, t)
         return (rgb, bold, False)
+
+    def get_background_rgb(self, t: float, column_x: int = 0):
+        """Continuous-t (0..1) gradient color for a mode's own background
+        depth layer — no brightness quantization, no bold/reverse, just
+        RGB. Same theme/rainbow selection as get_color, so a background
+        layer always matches the active palette. Used by Rain's ghost
+        layer and Pulse's gradient wash (see modes/rain.py, modes/pulse.py).
+        """
+        theme_name = self._resolve_theme(column_x)
+        stops = theme_gradient_stops(theme_name)
+        return color_engine.gradient(stops, t)
 
     def get_contrast_color(self):
         """Complementary fill color for the network mode's face texture."""

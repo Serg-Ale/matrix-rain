@@ -1,10 +1,20 @@
-"""Pulse mode — bright rings expanding through darkness with a trailing fade."""
+"""Pulse mode — bright rings expanding through darkness with a trailing fade.
+
+A background "gradient wash" — a radial color fill whose intensity
+breathes with the same pulse phase driving the rings — gives the mode a
+sense of fundo->frente depth without adding any extra characters.
+Validated in the issue #1 background-depth prototype (variant C,
+"Gradient wash").
+"""
 
 import math
 
+from core import color as color_engine
 from core.charset import MATRIX_CHARS
 
 from .base import Mode
+
+_WASH_DIM_FACTOR = 0.5
 
 
 class PulseMode(Mode):
@@ -15,6 +25,21 @@ class PulseMode(Mode):
 
     def reset(self, app):
         self.phase = 0.0
+
+    def _draw_wash(self, app, center_x, center_y, max_radius):
+        """Radial gradient fill, pushed toward the theme's darker end and
+        dimmed further so it reads as background. `breath` ties its
+        intensity to the same phase driving the rings, rather than to
+        raw frame count, per the prototype's brief."""
+        breath = self.phase / max_radius
+        for y in range(app.height):
+            for x in range(app.width):
+                dx = (x - center_x) / 2.0
+                dy = y - center_y
+                distance = math.sqrt(dx * dx + dy * dy) / max_radius
+                t = min(1.0, max(0.0, 0.55 + distance * 0.4 - breath * 0.15))
+                rgb = app.get_background_rgb(t, x)
+                app.add_background(y, x, color_engine.dim(rgb, _WASH_DIM_FACTOR))
 
     def render(self, app):
         width, height = app.width, app.height
@@ -27,6 +52,8 @@ class PulseMode(Mode):
         ring_count = 2 + (app.density // 2)
 
         self.phase = (self.phase + app.base_speed * 0.75) % max_radius
+
+        self._draw_wash(app, center_x, center_y, max_radius)
 
         # Non-linear spacing: rings bunched near center, wider near edge.
         ring_radii = []

@@ -140,3 +140,17 @@ def ansi_fg(rgb, truecolor: bool) -> str:
         r, g, b = rgb
         return '\x1b[38;2;{0};{1};{2}m'.format(r, g, b)
     return '\x1b[38;5;{0}m'.format(nearest_256(rgb))
+
+
+def ansi_bg(rgb, truecolor: bool) -> str:
+    """ANSI SGR sequence to set the background color to `rgb`.
+
+    Same true-color/256-fallback behavior as `ansi_fg`, using the
+    background SGR parameter (48) instead of the foreground one (38).
+    Used for depth/fill layers that paint color without a character —
+    e.g. Pulse mode's gradient wash (see modes/pulse.py).
+    """
+    if truecolor:
+        r, g, b = rgb
+        return '\x1b[48;2;{0};{1};{2}m'.format(r, g, b)
+    return '\x1b[48;5;{0}m'.format(nearest_256(rgb))

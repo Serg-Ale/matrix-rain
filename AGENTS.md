@@ -51,13 +51,14 @@ Arquivos versionados:
 - `assets/demo.gif`: demonstração visual usada no README.
 
 Um modo nunca importa `curses` nem escreve na tela por conta própria — ele
-recebe a instância de `App` e usa `app.add_char()`, `app.get_color()`,
-`app.get_contrast_color()`, `app.width`/`app.height`, etc. Isso é o que
-torna os módulos de modo testáveis/portáveis sem arrastar `curses` junto.
-Não há mais exceção para isso: antes da issue #3, `RainMode._draw()`
-escrevia em `app.stdscr.addstr()` diretamente; agora ela passa por
-`app.add_char()` como todo mundo, porque o próprio `curses` não desenha
-mais nada (ver "Motor de cor" abaixo).
+recebe a instância de `App` e usa `app.add_char()`, `app.add_background()`,
+`app.get_color()`, `app.get_background_rgb()`, `app.get_contrast_color()`,
+`app.width`/`app.height`, etc. Isso é o que torna os módulos de modo
+testáveis/portáveis sem arrastar `curses` junto. Não há mais exceção para
+isso: antes da issue #3, `RainMode._draw()` escrevia em
+`app.stdscr.addstr()` diretamente; agora ela passa por `app.add_char()`
+como todo mundo, porque o próprio `curses` não desenha mais nada (ver
+"Motor de cor" abaixo).
 
 ## Motor de cor
 
@@ -77,15 +78,49 @@ bruto direto pro terminal.
   `\x1b[38;2;r;g;bm` (true color) e `\x1b[38;5;{índice}m` (fallback,
   índice do 256-color mais próximo via `color.nearest_256`).
 - `App.get_color(brightness, column_x)` resolve um nível de brilho (0 a
-  `NUM_SHADES-1`) numa cor `(rgb, bold)`, interpolando continuamente entre
-  os 8 pontos de `palette.theme_gradient_stops()` do tema ativo — em vez de
-  indexar direto numa tabela fixa de 8 cores como antes.
+  `NUM_SHADES-1`) numa cor `(rgb, bold, reverse)`, interpolando
+  continuamente entre os 8 pontos de `palette.theme_gradient_stops()` do
+  tema ativo — em vez de indexar direto numa tabela fixa de 8 cores como
+  antes. `App.get_background_rgb(t, column_x)` é a mesma ideia sem
+  quantização de brilho: um `t` contínuo em `[0, 1]`, sem bold/reverse, RGB
+  puro — é o que os modos usam pra camadas de fundo (ver "Profundidade de
+  fundo" abaixo). Os dois compartilham a mesma seleção de tema/arco-íris
+  (`App._resolve_theme`), então uma camada de fundo nunca destoa da paleta
+  ativa.
+- `Screen` mantém duas camadas por célula: `set_cell` (caractere de
+  primeiro plano, usado por `add_char`) e `set_bg` (preenchimento de cor
+  sem caractere, usado por `add_background`). Onde as duas coexistem, o
+  primeiro plano sempre vence — a camada de fundo só aparece nas células
+  que ninguém mais desenhou naquele frame.
 - `Screen` reposiciona o cursor explicitamente antes de cada caractere (em
   vez de confiar no avanço automático do terminal) e nunca escreve no
   canto inferior-direito — duas lições vindas do protótipo de fundo/
   profundidade (issue #1): caracteres Katakana de largura completa
   desalinham a linha se o cursor só avança sozinho, e escrever a última
   célula da última linha aciona auto-scroll na maioria dos terminais.
+
+## Profundidade de fundo
+
+Todo modo precisa expressar uma noção de fundo→frente — não é opcional,
+é um requisito estrutural da spec (issue #1, item 6). Cada modo resolve
+isso à sua própria maneira (motor comum, personalidade por modo — ver
+issue #1, item 5):
+
+- **Network** (não mexido por esta convenção — já tinha desde antes do
+  split modular): `network_stars`, um campo 3D próprio com perspectiva
+  acoplada à câmera do modo.
+- **Rain**: uma "ghost layer" — uma segunda leva de colunas (`ghost_columns`
+  em `modes/rain.py`), mais esparsa, mais lenta e mais escura que o rastro
+  principal, desenhada *antes* do rastro principal em cada `render()` pra
+  que este sempre sobreponha aquela onde as duas coincidem.
+- **Pulse**: um "gradient wash" — um preenchimento de fundo radial
+  (`PulseMode._draw_wash`) cuja intensidade acompanha a mesma fase que
+  move os anéis (`self.phase`), sem nenhum caractere extra.
+
+As duas técnicas (Rain, Pulse) foram validadas visualmente via `/prototype`
+antes da implementação — ver comentário de veredito na issue #1 e a branch
+`prototype/rain-pulse-depth-bg`. Não redesenhe a estética delas sem passar
+por esse mesmo processo.
 
 ## Como executar e validar
 
@@ -203,7 +238,8 @@ antiga velocidade global 2.
   arco-íris, `m` alterna os visualizadores e `h` mostra o painel. `p` alterna
   sua visibilidade.
 - Um modo nunca chama `curses` diretamente nem acessa `app.stdscr` — passe
-  sempre por `app.add_char()`/`app.get_color()`/`app.get_contrast_color()`.
+  sempre por `app.add_char()`/`app.add_background()`/`app.get_color()`/
+  `app.get_background_rgb()`/`app.get_contrast_color()`.
 
 ## Alterações comuns
 
@@ -213,14 +249,21 @@ antiga velocidade global 2.
   `RAINBOW_SEQUENCE` somente se ele fizer sentido no ciclo arco-íris. Não
   precisa mexer em `core/color.py` — `theme_gradient_stops()` deriva o
   gradiente automaticamente das 8 novas entradas.
-- **Ajuste de estética do Rain:** prefira alterar `RainMode._random_speed`,
-  `_random_trail_length`, `_update_column` ou `_respawn_column`; não misture
-  estado de animação com `_draw`.
+- **Ajuste de estética do Rain (rastro principal):** prefira alterar
+  `RainMode._random_speed`, `_random_trail_length`, `_update_column` ou
+  `_respawn_column`; não misture estado de animação com `_draw`.
+- **Ajuste de estética do Rain (ghost layer) ou do Pulse (gradient wash):**
+  são as camadas de "Profundidade de fundo" acima — mexa em
+  `_GHOST_*`/`_init_ghost`/`_draw_ghost` (`modes/rain.py`) ou
+  `_WASH_DIM_FACTOR`/`_draw_wash` (`modes/pulse.py`). Qualquer redesenho
+  visual passa por `/prototype` de novo antes de implementar, não só por
+  ajuste direto de constantes.
 - **Novo visualizador:** crie um arquivo em `modes/`, implemente uma classe
   que estenda `modes.base.Mode` (`reset(app)`, `render(app)`), e registre-a
   em `MODE_CLASSES`/`MODE_ORDER` (`modes/__init__.py`). Reuse
   `app.base_speed`, `app.density` e `app.get_color()` para manter os
-  controles consistentes com os outros modos.
+  controles consistentes com os outros modos — e lembre que ele também
+  precisa de uma camada de fundo (ver "Profundidade de fundo" acima).
 - **Novo argumento:** implemente-o em `core.cli.parse_args()`, passe-o por
   `core.cli._main()` a `App`, e documente-o no README.
 - **Mexeu em `core/color.py` ou `core/palette.py`:** rode

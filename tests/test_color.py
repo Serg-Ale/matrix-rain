@@ -150,6 +150,21 @@ class AnsiFgTests(unittest.TestCase):
         self.assertEqual(color.ansi_fg(rgb, False), expected)
 
 
+class AnsiBgTests(unittest.TestCase):
+    def test_truecolor_sequence(self):
+        self.assertEqual(color.ansi_bg((10, 20, 30), True), '\x1b[48;2;10;20;30m')
+
+    def test_fallback_sequence_uses_256_index_form(self):
+        result = color.ansi_bg((255, 255, 255), False)
+        self.assertTrue(result.startswith('\x1b[48;5;'))
+        self.assertTrue(result.endswith('m'))
+
+    def test_fallback_snaps_to_nearest_256(self):
+        rgb = (12, 200, 7)
+        expected = '\x1b[48;5;{0}m'.format(color.nearest_256(rgb))
+        self.assertEqual(color.ansi_bg(rgb, False), expected)
+
+
 class DimTests(unittest.TestCase):
     def test_scales_down(self):
         self.assertEqual(color.dim((100, 100, 100), 0.5), (50, 50, 50))
