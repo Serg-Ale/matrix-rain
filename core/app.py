@@ -70,22 +70,22 @@ class App:
         get_contrast_color returned — out-of-bounds and the "invisible"
         sentinel are both silent no-ops, the same safety every mode used
         to get from curses.error."""
-        rgb, bold = color
+        rgb, bold, reverse = color
         if rgb is None:
             return
-        self.screen.set_cell(y, x, char, rgb, bold=bold)
+        self.screen.set_cell(y, x, char, rgb, bold=bold, reverse=reverse)
 
     def get_color(self, brightness: int, column_x: int = 0):
         """Resolve a brightness level (0=brightest, up to NUM_SHADES-1) to
-        a (rgb, bold) color for the current theme/rainbow state.
+        a (rgb, bold, reverse) color for the current theme/rainbow state.
 
-        Returns (None, False) — meaning "don't draw" — for brightness at
-        or beyond NUM_SHADES; no mode currently passes one that high (each
-        clamps its own trail/fade math beforehand), so this is a defensive
-        floor, not a reachable path in practice.
+        Returns (None, False, False) — meaning "don't draw" — for
+        brightness at or beyond NUM_SHADES; no mode currently passes one
+        that high (each clamps its own trail/fade math beforehand), so
+        this is a defensive floor, not a reachable path in practice.
         """
         if brightness >= NUM_SHADES:
-            return (None, False)
+            return (None, False, False)
 
         if self.rainbow:
             theme_idx = (column_x + self.frame_count // 10) % len(RAINBOW_SEQUENCE)
@@ -98,12 +98,12 @@ class App:
         stops = theme_gradient_stops(theme_name)
         t = brightness / float(NUM_SHADES - 1)
         rgb = color_engine.gradient(stops, t)
-        return (rgb, bold)
+        return (rgb, bold, False)
 
     def get_contrast_color(self):
         """Complementary fill color for the network mode's face texture."""
         rgb = contrast_rgb(self.color_name)
-        return (color_engine.dim(rgb, 0.6), False)
+        return (color_engine.dim(rgb, 0.6), False, False)
 
     # --- live controls ---------------------------------------------------
 
@@ -120,7 +120,7 @@ class App:
         panel was never theme-colored (it used curses' default terminal
         foreground plus A_REVERSE/A_BOLD before this ticket)."""
         for offset, char in enumerate(text):
-            self.screen.set_cell(y, x + offset, char, (255, 255, 255), bold=bold, reverse=reverse)
+            self.add_char(y, x + offset, char, ((255, 255, 255), bold, reverse))
 
     def _draw_control_panel(self):
         """Draw a compact btop-inspired live-control overlay."""
