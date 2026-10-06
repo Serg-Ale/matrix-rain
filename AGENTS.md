@@ -243,34 +243,35 @@ suporte a cor. Cada terminal pode declarar `--at LINHA,COLUNA` (implica
 `--wall`): as linhas empilham de cima para baixo, os tiles de uma linha
 vão da esquerda para a direita pela coluna, a linha tem a altura do seu
 tile mais alto e os tiles alinham pelo topo; sem `--at`, o tile entra na
-fila da linha 0 pela ordem de chegada
-(`wall.layout`/`wall.resolve_positions`). Enquanto o painel está visível,
-cada tile mostra um selo `WALL rXcY` no seu canto. Teclas dos clientes são
-encaminhadas ao host, exceto `q`/`Esc` (encerram aquele terminal) e `J`
-(sai do wall). O socket vive no diretório de runtime do usuário
-(`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid no nome se não houver) e só o
-dono acessa. Quem é host é quem segura um `flock` num arquivo `.lock` ao
-lado do socket: o kernel o solta quando o host morre, então não sobra
-socket órfão e dois terminais abrindo juntos não viram dois hosts. Os
-modos não sabem do wall: só veem `app.width`/`app.height`. `J` alterna a
-participação: em standalone, entra no wall (vira host se não houver um;
-senão vira cliente e a configuração do wall vence); dentro, sai e o
-terminal reconstrói o `App` com o último snapshot de configuração
-(`wall.snapshot_of`: cor, modo, velocidade, densidade, arco-íris — as
-chaves são os argumentos do construtor do `App`), com a simulação
-recomeçando. O host manda a configuração aos clientes (mensagem `config`)
-ao aceitá-los e sempre que ela muda. Se o host fecha, os clientes seguem
-standalone com o último snapshot. `core.wall_io.run_session` é o ciclo de
-vida de um terminal (standalone ⇄ wall). `L` liga o modo de layout do tile
-em cuja janela foi apertada: as setas dele movem o tile na grade
-(`wall.move_position`: mover para uma célula ocupada troca os dois, e as
-bordas da grade barram o movimento), e o host passa a guardar a célula de
-todos os tiles explicitamente. Quem chega com um `--at` já ocupado fica
-com a célula e o ocupante vai para a próxima coluna livre da linha
-(`wall.displace` — o recém-chegado não tem célula anterior para trocar). O
-host só aceita o `--at` de um tile na primeira mensagem `size`; depois a
-célula é dele. `Esc` não sai do modo de layout porque em todo terminal ele
-encerra o app — só `L` sai.
+fila da linha 0 pela ordem de chegada, na primeira coluna que ninguém
+declarou (`wall.layout`/`wall.resolve_positions`; nunca há duas posições
+iguais). Enquanto o painel está visível, cada tile mostra um selo `WALL
+rXcY` no seu canto. Teclas dos clientes são encaminhadas ao host, exceto
+`q`/`Esc` (encerram aquele terminal) e `J` (sai do wall). O socket vive no
+diretório de runtime do usuário (`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid
+no nome se não houver) e só o dono acessa. Quem é host é quem segura um
+`flock` num arquivo `.lock` ao lado do socket: o kernel o solta quando o
+host morre, então não sobra socket órfão e dois terminais abrindo juntos
+não viram dois hosts. Os modos não sabem do wall: só veem
+`app.width`/`app.height`. `J` alterna a participação: em standalone, entra
+no wall (vira host se não houver um; senão vira cliente e a configuração
+do wall vence); dentro, sai e o terminal reconstrói o `App` com o último
+snapshot de configuração (`wall.snapshot_of`: cor, modo, velocidade,
+densidade, arco-íris — as chaves são os argumentos do construtor do
+`App`), com a simulação recomeçando. O host manda a configuração aos
+clientes (mensagem `config`) ao aceitá-los e sempre que ela muda. Se o
+host fecha, os clientes seguem standalone com o último snapshot.
+`core.wall_io.run_session` é o ciclo de vida de um terminal (standalone ⇄
+wall). `L` liga o modo de layout do tile em cuja janela foi apertada: as
+setas dele movem o tile na grade (`wall.move_position`: mover para uma
+célula ocupada troca os dois, e as bordas da grade barram o movimento), e
+o host passa a guardar explicitamente a célula de todos os tiles que já
+estão no wall. Quem chega com um `--at` já ocupado fica com a célula e o
+ocupante vai para a próxima coluna livre da linha (`wall.displace`,
+voltando ao começo da linha no fim da grade — o recém-chegado não tem
+célula anterior para trocar). O host só aceita o `--at` de um tile na
+primeira mensagem `size`; depois a célula é dele. `Esc` não sai do modo de
+layout porque em todo terminal ele encerra o app — só `L` sai.
 
 ## Convenções e invariantes importantes
 

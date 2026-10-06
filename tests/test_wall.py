@@ -71,7 +71,16 @@ class GridLayoutTests(unittest.TestCase):
         self.assertEqual(placements, [(0, 0), (10, 0), (30, 0)])
 
     def test_resolved_positions_fill_in_the_arrival_queue(self):
-        self.assertEqual(wall.resolve_positions([None, (3, 2), None]), [(0, 0), (3, 2), (0, 2)])
+        self.assertEqual(wall.resolve_positions([None, (3, 2), None]), [(0, 0), (3, 2), (0, 1)])
+
+    def test_the_queue_skips_cells_other_tiles_declared(self):
+        self.assertEqual(wall.resolve_positions([None, (0, 0), None, (0, 2), None]),
+                         [(0, 1), (0, 0), (0, 3), (0, 2), (0, 4)])
+
+    def test_resolved_positions_never_repeat(self):
+        resolved = wall.resolve_positions([None, (0, 0), None, (0, 1), None, (0, 2)])
+
+        self.assertEqual(len(set(resolved)), len(resolved))
 
     def test_two_tiles_on_the_same_position_keep_arrival_order(self):
         placements, _, _ = wall.layout([(10, 5), (20, 5)], [(0, 0), (0, 0)])
@@ -131,6 +140,11 @@ class DisplaceTests(unittest.TestCase):
 
     def test_the_search_skips_occupied_columns(self):
         self.assertEqual(wall.displace([(2, 3), (2, 4), (2, 5)], (2, 3)), (0, (2, 6)))
+
+    def test_at_the_end_of_the_grid_the_occupant_wraps_to_the_first_free_column(self):
+        edge = wall.MAX_GRID_INDEX
+
+        self.assertEqual(wall.displace([(0, edge), (0, 0)], (0, edge)), (0, (0, 1)))
 
     def test_only_the_tile_on_that_position_is_displaced(self):
         self.assertEqual(wall.displace([(0, 0), (1, 0), (1, 1)], (1, 0)), (1, (1, 2)))

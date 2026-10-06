@@ -207,6 +207,9 @@ def run_host(stdscr, listener, kwargs, at):
     def sized_tiles():
         return [t for t in tiles if t.width > 0 and t.height > 0]
 
+    def positions_of(sized):
+        return wall.resolve_positions([t.at for t in sized])
+
     def handle_key(tile, key):
         """Keys from any tile. L toggles that tile's layout mode, in which
         its arrows move it on the grid; everything else reaches the app."""
@@ -216,8 +219,7 @@ def run_host(stdscr, listener, kwargs, at):
                             if tile.layout_mode else 'Layout mode off')
         elif tile.layout_mode and key in _ARROWS and tile in sized_tiles():
             sized = sized_tiles()
-            moved = wall.move_position(
-                wall.resolve_positions([t.at for t in sized]), sized.index(tile), _ARROWS[key])
+            moved = wall.move_position(positions_of(sized), sized.index(tile), _ARROWS[key])
             for t, position in zip(sized, moved):
                 t.at = position  # from here on every tile's cell is explicit
         else:
@@ -230,7 +232,7 @@ def run_host(stdscr, listener, kwargs, at):
         others = [t for t in sized_tiles() if t is not tile]
         want = tuple(message['at']) if 'at' in message else None
         if want is not None:
-            moved = wall.displace(wall.resolve_positions([t.at for t in others]), want)
+            moved = wall.displace(positions_of(others), want)
             if moved:
                 others[moved[0]].at = moved[1]
         tile.at = want
@@ -274,7 +276,7 @@ def run_host(stdscr, listener, kwargs, at):
 
             # The canvas follows the tiles that have reported a size.
             sized = sized_tiles()
-            positions = wall.resolve_positions([t.at for t in sized])
+            positions = positions_of(sized)
             placements, canvas_height, canvas_width = wall.layout(
                 [(t.width, t.height) for t in sized], positions)
             canvas = (canvas_height, canvas_width)
@@ -294,10 +296,14 @@ def run_host(stdscr, listener, kwargs, at):
             app.render_frame()
             editing = any(t.layout_mode for t in sized)
             if editing:
-                for tile, (x, y) in zip(sized, placements):  # seam guides on every tile
+                guide = (GUIDE_COLOR, False, False)
+                for tile, (x, y) in zip(sized, placements):  # seam guides: every tile's outline
+                    for edge_x in range(x, x + tile.width):
+                        app.add_char(y, edge_x, '-', guide)
+                        app.add_char(y + tile.height - 1, edge_x, '-', guide)
                     for edge_y in range(y, y + tile.height):
-                        app.add_char(edge_y, x, '|', (GUIDE_COLOR, False, False))
-                        app.add_char(edge_y, x + tile.width - 1, '|', (GUIDE_COLOR, False, False))
+                        app.add_char(edge_y, x, '|', guide)
+                        app.add_char(edge_y, x + tile.width - 1, '|', guide)
             if app.panel_visible or editing:
                 for tile, (row, col), (x, y) in zip(sized, positions, placements):
                     label = ' LAYOUT r{0}c{1} ' if tile.layout_mode else ' WALL r{0}c{1} '

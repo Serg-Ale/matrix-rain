@@ -30,8 +30,18 @@ def parse_at(text):
 
 def resolve_positions(positions):
     """Fill in tiles that didn't declare a position: they queue up in row
-    0, one column per arrival-order index."""
-    return [p if p is not None else (0, i) for i, p in enumerate(positions)]
+    0, in arrival order, each taking the first column nobody else holds."""
+    taken = {p for p in positions if p is not None}
+    resolved = []
+    col = 0
+    for position in positions:
+        if position is None:
+            while (0, col) in taken:
+                col += 1
+            position = (0, col)
+            taken.add(position)
+        resolved.append(position)
+    return resolved
 
 
 _STEPS = {'up': (-1, 0), 'down': (1, 0), 'left': (0, -1), 'right': (0, 1)}
@@ -58,17 +68,18 @@ def move_position(positions, index, direction):
 def displace(positions, want):
     """A newcomer asks for the grid cell ``want``. If a tile already sits
     there it has to make room: returns ``(index, new_position)`` — the
-    first free column to its right in the same row — or ``None`` when
+    first free column to its right in the same row (wrapping to the
+    start of the row at the grid's edge) — or ``None`` when
     ``want`` is free. (A newcomer has no previous cell to swap into, so
     the occupant steps aside instead.)"""
     if want not in positions:
         return None
     row, col = want
     taken = set(positions)
-    col += 1
-    while (row, col) in taken:
-        col += 1
-    return positions.index(want), (row, col)
+    for candidate in list(range(col + 1, MAX_GRID_INDEX + 1)) + list(range(col)):
+        if (row, candidate) not in taken:
+            return positions.index(want), (row, candidate)
+    raise ValueError('row {0} is full'.format(row))
 
 
 def layout(sizes, positions=None):
