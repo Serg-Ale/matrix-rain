@@ -165,17 +165,18 @@ class _WallInput:
 
 
 class _Tile:
-    def __init__(self, conn, width=0, height=0):
+    def __init__(self, conn, width=0, height=0, at=None):
         self.conn = conn        # None for the host's own terminal
         self.width = width
         self.height = height    # width == 0: hasn't reported its size yet
+        self.at = at            # declared (row, col), or None
 
 
 def run_host(stdscr, listener, args):
     curses.curs_set(0)
     stdscr.nodelay(True)
     height, width = stdscr.getmaxyx()
-    local = _Tile(None, width, height)
+    local = _Tile(None, width, height, args.at)
     tiles = [local]
     canvas = (height, width)
     key_queue = _WallInput()
@@ -216,12 +217,15 @@ def run_host(stdscr, listener, args):
                 for message in messages:
                     if message['t'] == 'size':
                         tile.width, tile.height = message['w'], message['h']
+                        tile.at = tuple(message['at']) if 'at' in message else None
                     elif message['t'] == 'key':
                         key_queue.keys.append(message['k'])
 
             # The canvas follows the tiles that have reported a size.
             sized = [t for t in tiles if t.width > 0 and t.height > 0]
-            placements, canvas_height, canvas_width = wall.layout([(t.width, t.height) for t in sized])
+            positions = wall.resolve_positions([t.at for t in sized])
+            placements, canvas_height, canvas_width = wall.layout(
+                [(t.width, t.height) for t in sized], positions)
             canvas = (canvas_height, canvas_width)
 
             if app.check_input():
@@ -229,6 +233,9 @@ def run_host(stdscr, listener, args):
             app.handle_resize()
 
             app.render_frame()
+            if app.panel_visible:
+                for (row, col), (x, y) in zip(positions, placements):
+                    app.draw_text(y, x, ' WALL r{0}c{1} '.format(row, col), reverse=True)
 
             for tile, (x, y) in zip(sized, placements):
                 cells, bgs = app.screen.extract(y, x, tile.height, tile.width)
@@ -254,7 +261,7 @@ def run_host(stdscr, listener, args):
 
 # --- client -------------------------------------------------------------------
 
-def run_client(stdscr, conn):
+def run_client(stdscr, conn, at=None):
     curses.curs_set(0)
     stdscr.nodelay(True)
     truecolor = color_engine.supports_truecolor()
@@ -275,7 +282,7 @@ def run_client(stdscr, conn):
 
             height, width = stdscr.getmaxyx()
             if (height, width) != sent_size:
-                if not conn.send(wall.size_message(width, height)):
+                if not conn.send(wall.size_message(width, height, at)):
                     return 'host closed the wall'
                 sent_size = (height, width)
 
@@ -310,7 +317,7 @@ def run_wall(stdscr, args, transport=None):
     for _ in range(40):
         conn = transport.connect()
         if conn:
-            return run_client(stdscr, conn)
+            return run_client(stdscr, conn, args.at)
         try:
             listener = transport.listen()
         except OSError as error:

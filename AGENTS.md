@@ -237,7 +237,12 @@ primeiro vira **host** e roda o `App` num canvas virtual (a união dos
 tiles, via `App(canvas_size=...)`); os outros viram **clientes**. A cada
 frame o host fatia o canvas por tile (`Screen.extract`) e manda as
 células; o cliente só as desenha (`Screen.load` + `flush`), com o próprio
-suporte a cor. Tiles ficam lado a lado pela ordem de chegada. Teclas dos
+suporte a cor. Cada terminal pode declarar `--at LINHA,COLUNA` (implica `--wall`): as
+linhas empilham de cima para baixo, os tiles de uma linha vão da esquerda
+para a direita pela coluna, a linha tem a altura do seu tile mais alto e os
+tiles alinham pelo topo; sem `--at`, o tile entra na fila da linha 0 pela
+ordem de chegada (`wall.layout`/`wall.resolve_positions`). Enquanto o
+painel está visível, cada tile mostra um selo `WALL rXcY` no seu canto. Teclas dos
 clientes são encaminhadas ao host, exceto `q`/`Esc`, que só tiram o
 cliente do wall. O socket vive no diretório de runtime do usuário
 (`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid no nome se não houver) e só o dono

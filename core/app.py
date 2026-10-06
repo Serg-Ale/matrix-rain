@@ -151,7 +151,7 @@ class App:
         """Return a compact ten-step meter for the control panel."""
         return '[' + ('#' * value) + ('.' * (10 - value)) + ']'
 
-    def _draw_text(self, y: int, x: int, text: str, reverse: bool = False, bold: bool = False):
+    def draw_text(self, y: int, x: int, text: str, reverse: bool = False, bold: bool = False):
         """Write a row of panel text — always neutral white, since the
         panel was never theme-colored (it used curses' default terminal
         foreground plus A_REVERSE/A_BOLD before this ticket)."""
@@ -198,7 +198,7 @@ class App:
 
         for offset, row in enumerate(rows):
             reverse = offset in (0, 1, 5, 10)
-            self._draw_text(y + offset, x, row, reverse=reverse, bold=not reverse)
+            self.draw_text(y + offset, x, row, reverse=reverse, bold=not reverse)
 
     def change_speed(self, amount: int):
         """Change speed live and keep every stream's relative variation."""

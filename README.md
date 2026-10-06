@@ -104,6 +104,7 @@ matrix-rain -m network --rainbow -s 7 -d 8  # Fast dense rainbow network
 | `-d` | `--density` | Rain density (1-10) | `7` |
 | `-S` | `--screensaver` | Exit on any keypress | `off` |
 | `-r` | `--rainbow` | Rainbow color cycling mode | `off` |
+| | `--at` | `ROW,COL` — where this terminal sits on the wall's grid; implies `--wall` | queue by arrival |
 | | `--wall` | Join (or start) a video wall with other terminals — see [Video wall](#video-wall) | `off` |
 | `-h` | `--help` | Show help message | - |
 
@@ -122,6 +123,23 @@ any tile and every tile follows.
 matrix-rain --wall -c cyan    # first terminal: starts the wall
 matrix-rain --wall            # second, third...: join it
 ```
+
+If your terminals aren't in a single row, say where each one sits with
+`--at ROW,COL` (row 0 is the top, column 0 the left). For one terminal on top
+and two below:
+
+```bash
+matrix-rain --at 0,0 -c cyan    # top (starts the wall)
+matrix-rain --at 1,0            # bottom left
+matrix-rain --at 1,1            # bottom right
+```
+
+Rows stack top to bottom and tiles in a row go left to right by column. Tiles
+of different sizes line up along the top of their row, and a row as wide as
+its widest tile — keep the rows about the same total width, since any
+difference is simply blank. While the control panel is visible (`p` toggles
+it), each tile shows its own `WALL rXcY` badge in the corner. Terminals that
+don't pass `--at` queue up in row 0 in the order they join.
 
 `q` or `Esc` in a joined tile only leaves the wall; `q` in the host ends it.
 `--wall` can't be combined with `-S`. The wall is local to your user on this
