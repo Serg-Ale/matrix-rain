@@ -13,6 +13,7 @@ App.add_char/App.add_background/App.get_color instead (see modes/base.py).
 """
 
 import sys
+import unicodedata
 
 from . import color as color_engine
 
@@ -68,6 +69,40 @@ class Screen:
         where no foreground character is drawn on top this frame."""
         if 0 <= y < self.height and 0 <= x < self.width:
             self._bg[y][x] = rgb
+
+    def extract(self, top: int, left: int, height: int, width: int):
+        """Cells inside a rectangle, in rectangle-local coordinates, as
+        ``(cells, bgs)``: ``cells`` are ``(y, x, char, rgb, bold, reverse)``
+        and ``bgs`` are ``(y, x, rgb)`` for fills no character covers —
+        the same foreground-wins rule flush() applies. Parts of the
+        rectangle outside the screen are skipped, and a full-width
+        character on the rectangle's last column is dropped."""
+        cells, bgs = [], []
+        for y in range(max(0, -top), min(height, self.height - top)):
+            for x in range(max(0, -left), min(width, self.width - left)):
+                cell = self._cells[top + y][left + x]
+                if cell is not None:
+                    char, rgb, bold, reverse = cell
+                    # A full-width character on the last column would
+                    # spill into whatever sits beside the rectangle, so
+                    # it's dropped — its cell then reads as bg-only.
+                    if not (x == width - 1 and unicodedata.east_asian_width(char) in ('W', 'F')):
+                        cells.append((y, x, char, rgb, bold, reverse))
+                        continue
+                bg = self._bg[top + y][left + x]
+                if bg is not None:
+                    bgs.append((y, x, bg))
+        return cells, bgs
+
+    def load(self, cells, bgs):
+        """Start a new frame from ``extract()``'s output — the receiving
+        side of a rectangle shipped from another Screen. Anything outside
+        this screen is ignored, same as set_cell/set_bg."""
+        self.clear()
+        for y, x, char, rgb, bold, reverse in cells:
+            self.set_cell(y, x, char, rgb, bold, reverse)
+        for y, x, rgb in bgs:
+            self.set_bg(y, x, rgb)
 
     def flush(self, truecolor: bool):
         """Write the whole frame to the terminal in one shot."""
