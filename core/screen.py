@@ -110,6 +110,12 @@ class Screen:
                         prefix += _CSI + '7m'
                     out.append(prefix)
                     out.append(char)
+                    if bold or reverse:
+                        # bold/reverse are sticky SGR state — without this,
+                        # the first bold or reversed cell in a frame would
+                        # bleed bold/reverse into every following cell (no
+                        # foreground color choice turns them back off).
+                        out.append(_RESET)
                     active_bg = None
                     continue
 
