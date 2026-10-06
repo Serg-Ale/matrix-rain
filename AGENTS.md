@@ -51,8 +51,8 @@ Arquivos versionados:
   - `__init__.py`: registro dos modos — `MODE_ORDER` (ordem do ciclo da tecla
     `m`) e `MODE_CLASSES` (nome → classe).
 - `tests/`: testes de unidade (stdlib `unittest`) para a lógica pura de
-  `core/color.py`, `core/palette.py` e da interface de fatiar/reconstruir
-  do `core/screen.py`. Nada que dependa de `curses` é
+  `core/color.py`, `core/palette.py`, `core/wall.py` (layout e codec) e da
+  interface de fatiar/reconstruir do `core/screen.py`. Nada que dependa de `curses` é
   testado automaticamente — ver "Como executar e validar".
 - `README.md`: documentação voltada a pessoas e exemplos de uso.
 - `assets/demo.gif`: demonstração visual usada no README.
@@ -239,8 +239,11 @@ frame o host fatia o canvas por tile (`Screen.extract`) e manda as
 células; o cliente só as desenha (`Screen.load` + `flush`), com o próprio
 suporte a cor. Tiles ficam lado a lado pela ordem de chegada. Teclas dos
 clientes são encaminhadas ao host, exceto `q`/`Esc`, que só tiram o
-cliente do wall. O socket vive no diretório de runtime do usuário e só o
-dono acessa. Os modos não sabem do wall: só veem `app.width`/`app.height`.
+cliente do wall. O socket vive no diretório de runtime do usuário
+(`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid no nome se não houver) e só o dono
+acessa. Quem é host é quem segura um `flock` num arquivo `.lock` ao lado
+do socket: o kernel o solta quando o host morre, então não sobra socket
+órfão e dois terminais abrindo juntos não viram dois hosts. Os modos não sabem do wall: só veem `app.width`/`app.height`.
 
 ## Convenções e invariantes importantes
 

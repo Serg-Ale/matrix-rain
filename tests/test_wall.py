@@ -11,7 +11,6 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import wall  # noqa: E402
-from core.screen import Screen  # noqa: E402
 
 
 class LayoutTests(unittest.TestCase):
@@ -76,6 +75,27 @@ class CodecTests(unittest.TestCase):
         decoded = wall.LineDecoder().feed(raw)
 
         self.assertEqual(decoded, [{'t': 'key', 'k': 7}])
+
+    def test_decoder_rejects_absurd_tile_sizes(self):
+        raw = (wall.encode(wall.size_message(10 ** 9, 10)) + wall.encode(wall.size_message(10, -1))
+               + wall.encode(wall.size_message(90, 30)))
+
+        decoded = wall.LineDecoder().feed(raw)
+
+        self.assertEqual(decoded, [{'t': 'size', 'w': 90, 'h': 30}])
+
+    def test_decoder_drops_a_runaway_line_instead_of_growing_forever(self):
+        decoder = wall.LineDecoder()
+
+        self.assertEqual(decoder.feed(b'x' * (wall.MAX_LINE_BYTES + 1)), [])
+
+        # The garbage is gone: the next real message still comes through.
+        self.assertEqual(decoder.feed(b'\n' + wall.encode(wall.key_message(5))), [{'t': 'key', 'k': 5}])
+
+    def test_frame_cells_raises_on_malformed_cells(self):
+        for bad in ([[1, 2]], [[0, 0, 'a', 5, False, False]], 'nope'):
+            with self.assertRaises((ValueError, TypeError)):
+                wall.frame_cells({'t': 'frame', 'cells': bad, 'bgs': []})
 
 
 if __name__ == '__main__':

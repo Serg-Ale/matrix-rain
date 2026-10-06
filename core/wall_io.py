@@ -10,6 +10,7 @@ transport can slot in later without touching the loops below.
 
 import curses
 import errno
+import fcntl
 import os
 import select
 import socket
@@ -21,7 +22,8 @@ from .app import App
 from .screen import Screen
 
 FRAME_DELAY = 0.03          # same ~33 FPS pacing as App.run
-SEND_TIMEOUT = 1.0          # a client that can't take a frame for this long is dropped
+SEND_TIMEOUT = 0.25         # a client that can't take a frame for this long is dropped (the host
+                            # blocks on it meanwhile, so keep it short)
 _QUIT_KEYS = (ord('q'), ord('Q'), 27)
 
 
@@ -73,9 +75,10 @@ class Connection:
 
 
 class Listener:
-    def __init__(self, sock, path):
+    def __init__(self, sock, path, lock_fd):
         self._sock = sock
         self._path = path
+        self._lock_fd = lock_fd
 
     def fileno(self):
         return self._sock.fileno()
@@ -86,10 +89,14 @@ class Listener:
 
     def close(self):
         try:
-            self._sock.close()
             os.unlink(self._path)
         except OSError:
             pass
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+        os.close(self._lock_fd)  # releases the host lock
 
 
 class UnixTransport:
@@ -101,34 +108,41 @@ class UnixTransport:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             sock.connect(self.path)
-        except FileNotFoundError:
+        except (FileNotFoundError, ConnectionRefusedError):
             sock.close()
-            return None
-        except ConnectionRefusedError:
-            # A socket file nobody listens on: left over from a host that
-            # died uncleanly. Clear it so listen() can reuse the path.
-            sock.close()
-            try:
-                os.unlink(self.path)
-            except FileNotFoundError:
-                pass
             return None
         return Connection(sock)
 
     def listen(self):
-        """Become the host. Raises OSError(EADDRINUSE) if another process
-        got there first. Only the owning user can reach the socket."""
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        """Become the host. Being the host means holding an exclusive lock
+        on a lock file next to the socket: the kernel drops it when the
+        holder dies, so there's never a stale host to clean up after, and
+        two terminals starting at once can't both win. Raises
+        OSError(EADDRINUSE) when another process holds it. Only the owning
+        user can reach the socket."""
         old_umask = os.umask(0o077)
         try:
-            sock.bind(self.path)
-        except OSError:
-            sock.close()
-            raise
+            lock_fd = os.open(self.path + '.lock', os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                os.close(lock_fd)
+                raise OSError(errno.EADDRINUSE, 'another host holds the wall')
+            try:
+                os.unlink(self.path)  # whatever a dead host left behind
+            except FileNotFoundError:
+                pass
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.bind(self.path)
+                sock.listen(8)
+            except OSError:
+                sock.close()
+                os.close(lock_fd)
+                raise
         finally:
             os.umask(old_umask)
-        sock.listen(8)
-        return Listener(sock, self.path)
+        return Listener(sock, self.path, lock_fd)
 
 
 # --- host ---------------------------------------------------------------------
@@ -214,9 +228,7 @@ def run_host(stdscr, listener, args):
                 break
             app.handle_resize()
 
-            app.screen.clear()
-            app.modes[app.active_mode].render(app)
-            app._draw_control_panel()
+            app.render_frame()
 
             for tile, (x, y) in zip(sized, placements):
                 cells, bgs = app.screen.extract(y, x, tile.height, tile.width)
@@ -295,7 +307,7 @@ def run_wall(stdscr, args, transport=None):
     """Join the wall if a host is running, otherwise become the host.
     Returns a short message for the caller to print once curses is closed."""
     transport = transport or UnixTransport()
-    for _ in range(2):  # the second pass covers two first-starters racing
+    for _ in range(40):
         conn = transport.connect()
         if conn:
             return run_client(stdscr, conn)
@@ -304,6 +316,9 @@ def run_wall(stdscr, args, transport=None):
         except OSError as error:
             if error.errno != errno.EADDRINUSE:
                 raise
+            # Someone holds the host lock but isn't accepting yet — it's
+            # still starting up. Give it a moment, then try joining again.
+            time.sleep(0.05)
             continue
         return run_host(stdscr, listener, args)
     raise RuntimeError('could not join or create the wall')

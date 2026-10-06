@@ -310,6 +310,15 @@ class App:
             pass
         return False
 
+    def render_frame(self):
+        """Build one frame in ``self.screen`` — clear, advance and draw the
+        active visualizer, overlay the panel — without writing it anywhere.
+        ``run`` flushes it to the terminal; the video wall host slices it
+        per tile instead."""
+        self.screen.clear()
+        self.modes[self.active_mode].render(self)
+        self._draw_control_panel()
+
     def run(self):
         """Main animation loop."""
         # Calculate frame delay based on speed
@@ -327,13 +336,7 @@ class App:
                 # Handle terminal resize
                 self.handle_resize()
 
-                # Start a new frame
-                self.screen.clear()
-
-                # Update and draw the active visualizer.
-                self.modes[self.active_mode].render(self)
-
-                self._draw_control_panel()
+                self.render_frame()
 
                 # Push the frame to the terminal
                 self.screen.flush(self.truecolor)

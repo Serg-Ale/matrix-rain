@@ -62,8 +62,16 @@ def encode(message):
     return (json.dumps(message, separators=(',', ':'), ensure_ascii=False) + '\n').encode('utf-8')
 
 
+MAX_TILE_SIZE = 10000       # a client can't make the host build a gigantic canvas
+MAX_LINE_BYTES = 1 << 24    # a peer that never sends a newline can't grow the buffer forever
+
+
 def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_tile_dimension(value):
+    return _is_int(value) and 0 <= value <= MAX_TILE_SIZE
 
 
 def _valid(message):
@@ -71,7 +79,7 @@ def _valid(message):
         return False
     kind = message.get('t')
     if kind == 'size':
-        return _is_int(message.get('w')) and _is_int(message.get('h'))
+        return _is_tile_dimension(message.get('w')) and _is_tile_dimension(message.get('h'))
     if kind == 'key':
         return _is_int(message.get('k'))
     if kind == 'frame':
@@ -90,6 +98,8 @@ class LineDecoder:
     def feed(self, data):
         self._buffer += data
         *lines, self._buffer = self._buffer.split(b'\n')
+        if len(self._buffer) > MAX_LINE_BYTES:
+            self._buffer = b''
         messages = []
         for line in lines:
             try:
