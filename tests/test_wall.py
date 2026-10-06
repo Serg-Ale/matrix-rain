@@ -105,6 +105,12 @@ class GapLayoutTests(unittest.TestCase):
     def test_there_is_no_gap_before_the_first_tile_or_after_the_last(self):
         self.assertEqual(wall.layout([(80, 24)], gap=(5, 5)), ([(0, 0)], 24, 80))
 
+    def test_a_gap_is_counted_once_per_seam_between_rows_that_exist(self):
+        placements, height, _ = wall.layout([(10, 4), (10, 6)], [(0, 0), (5, 0)], gap=(0, 3))
+
+        self.assertEqual(placements, [(0, 0), (0, 7)])
+        self.assertEqual(height, 13)
+
     def test_both_gaps_apply_on_a_grid(self):
         sizes = [(120, 20), (60, 20), (60, 24)]
         positions = [(0, 0), (1, 0), (1, 1)]

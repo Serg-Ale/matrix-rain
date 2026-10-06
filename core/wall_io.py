@@ -217,8 +217,8 @@ def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
         nonlocal gap
         if key in _LAYOUT_KEYS:
             tile.layout_mode = not tile.layout_mode
-            app.show_status('Layout mode: arrows move this tile, L exits'
-                            if tile.layout_mode else 'Layout mode off')
+            app.show_status('Layout: arrows move tile, L exits'
+                            if tile.layout_mode else 'Layout off')
         elif key in _GAP_KEYS:
             axis, delta = _GAP_KEYS[key]
             gap = wall.adjust_gap(gap, axis, delta)
