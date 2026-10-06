@@ -116,7 +116,7 @@ cycles through every theme below rather than picking one.
 Run `matrix-rain --wall` in two or more terminals on the same machine and they
 become tiles of one big screen: the animation runs once, across all of them.
 The first terminal becomes the host; the others join it, side by side in the
-order they open. Theme, mode, speed and density are shared — change them in
+order they open. Theme, mode, rainbow, speed and density are shared — change them in
 any tile and every tile follows.
 
 ```bash
