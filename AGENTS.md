@@ -57,7 +57,10 @@ Arquivos versionados:
   interface de fatiar/reconstruir do `core/screen.py`. Nada que dependa de
   `curses` é testado automaticamente — ver "Como executar e validar".
 - `README.md`: documentação voltada a pessoas e exemplos de uso.
-- `assets/demo.gif`: demonstração visual usada no README.
+- `assets/`: GIFs e capturas usados no README, gravados do app real
+  (`rain.gif`, `pulse.gif`, `network.gif`, `wall-row.gif`, `wall-grid.gif`,
+  `themes.png`, `panel.png`, `wall-layout.png`). Refaça-os quando a
+  aparência de um modo, do painel ou do wall mudar.
 
 Um modo nunca importa `curses` nem escreve na tela por conta própria — ele
 recebe a instância de `App` e usa `app.add_char()`, `app.add_background()`,
