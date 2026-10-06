@@ -79,6 +79,63 @@ class GridLayoutTests(unittest.TestCase):
         self.assertEqual(placements, [(0, 0), (10, 0)])
 
 
+class MovePositionTests(unittest.TestCase):
+    def test_a_tile_moves_one_cell_in_the_given_direction(self):
+        positions = [(1, 1), (5, 5)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'up'), [(0, 1), (5, 5)])
+        self.assertEqual(wall.move_position(positions, 0, 'down'), [(2, 1), (5, 5)])
+        self.assertEqual(wall.move_position(positions, 0, 'left'), [(1, 0), (5, 5)])
+        self.assertEqual(wall.move_position(positions, 0, 'right'), [(1, 2), (5, 5)])
+
+    def test_moving_onto_an_occupied_position_swaps_the_two_tiles(self):
+        positions = [(0, 0), (0, 1), (1, 0)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'right'), [(0, 1), (0, 0), (1, 0)])
+        self.assertEqual(wall.move_position(positions, 0, 'down'), [(1, 0), (0, 1), (0, 0)])
+
+    def test_there_is_no_going_past_the_top_left_edge(self):
+        positions = [(0, 0), (3, 3)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'up'), positions)
+        self.assertEqual(wall.move_position(positions, 0, 'left'), positions)
+
+    def test_there_is_no_going_past_the_grid_limit(self):
+        edge = wall.MAX_GRID_INDEX
+        positions = [(edge, edge)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'down'), positions)
+        self.assertEqual(wall.move_position(positions, 0, 'right'), positions)
+
+    def test_moving_never_mutates_its_input(self):
+        positions = [(0, 0), (0, 1)]
+
+        wall.move_position(positions, 0, 'right')
+
+        self.assertEqual(positions, [(0, 0), (0, 1)])
+
+    def test_no_two_tiles_ever_share_a_position_after_a_move(self):
+        positions = [(0, 0), (0, 1), (0, 2), (1, 1)]
+        for index in range(len(positions)):
+            for direction in ('up', 'down', 'left', 'right'):
+                moved = wall.move_position(positions, index, direction)
+                self.assertEqual(len(set(moved)), len(moved))
+
+
+class DisplaceTests(unittest.TestCase):
+    def test_a_free_position_displaces_nobody(self):
+        self.assertIsNone(wall.displace([(0, 0), (0, 1)], (1, 0)))
+
+    def test_an_occupant_is_pushed_to_the_next_free_column_in_its_row(self):
+        self.assertEqual(wall.displace([(0, 0), (0, 1)], (0, 0)), (0, (0, 2)))
+
+    def test_the_search_skips_occupied_columns(self):
+        self.assertEqual(wall.displace([(2, 3), (2, 4), (2, 5)], (2, 3)), (0, (2, 6)))
+
+    def test_only_the_tile_on_that_position_is_displaced(self):
+        self.assertEqual(wall.displace([(0, 0), (1, 0), (1, 1)], (1, 0)), (1, (1, 2)))
+
+
 class ParseAtTests(unittest.TestCase):
     def test_parses_row_and_column(self):
         self.assertEqual(wall.parse_at('1,2'), (1, 2))

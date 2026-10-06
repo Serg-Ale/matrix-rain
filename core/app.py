@@ -38,6 +38,7 @@ class App:
         # Set by the J key: join the video wall (when standalone) or leave it
         # (when hosting) — run()/the host loop stop and the session decides.
         self.wall_toggle_requested = False
+        self.wall_active = False    # set by the wall host: the panel then offers L (layout)
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
         # core.cli's argparse choices already guarantee a valid mode for
@@ -177,12 +178,13 @@ class App:
         network_tempo = self.modes['network'].tempo
         pulse_thickness = self.modes['pulse'].thickness
 
+        wall_hint = 'J leave  L layout' if self.wall_active else 'J wall'
         if self.active_mode == 'network':
-            context_row = ',/. net:{0:.1f}x  J wall  M/T/R/P'.format(network_tempo)
+            context_row = ',/. net:{0:.1f}x  {1}  M/T/R/P'.format(network_tempo, wall_hint)
         elif self.active_mode == 'pulse':
-            context_row = ',/. thickness:{0:.1f}x  J wall  M/T/R/P'.format(pulse_thickness)
+            context_row = ',/. thickness:{0:.1f}x  {1}'.format(pulse_thickness, wall_hint)
         else:
-            context_row = 'M mode T theme R rainbow J wall P hide'
+            context_row = 'M mode  T theme  R rainbow  {0}'.format(wall_hint)
 
         rows = [
             '+' + ('-' * (panel_width - 2)) + '+',

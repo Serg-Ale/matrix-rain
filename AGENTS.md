@@ -261,7 +261,16 @@ chaves são os argumentos do construtor do `App`), com a simulação
 recomeçando. O host manda a configuração aos clientes (mensagem `config`)
 ao aceitá-los e sempre que ela muda. Se o host fecha, os clientes seguem
 standalone com o último snapshot. `core.wall_io.run_session` é o ciclo de
-vida de um terminal (standalone ⇄ wall).
+vida de um terminal (standalone ⇄ wall). `L` liga o modo de layout do tile
+em cuja janela foi apertada: as setas dele movem o tile na grade
+(`wall.move_position`: mover para uma célula ocupada troca os dois, e as
+bordas da grade barram o movimento), e o host passa a guardar a célula de
+todos os tiles explicitamente. Quem chega com um `--at` já ocupado fica
+com a célula e o ocupante vai para a próxima coluna livre da linha
+(`wall.displace` — o recém-chegado não tem célula anterior para trocar). O
+host só aceita o `--at` de um tile na primeira mensagem `size`; depois a
+célula é dele. `Esc` não sai do modo de layout porque em todo terminal ele
+encerra o app — só `L` sai.
 
 ## Convenções e invariantes importantes
 

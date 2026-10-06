@@ -141,6 +141,14 @@ difference is simply blank. While the control panel is visible (`p` toggles
 it), each tile shows its own `WALL rXcY` badge in the corner. Terminals that
 don't pass `--at` queue up in row 0 in the order they join.
 
+Reorganizing doesn't need a restart: press `L` in a tile to enter layout mode,
+and its arrow keys move that tile around the grid (moving onto another tile
+swaps the two); press `L` again to leave the mode. While it's on, every tile
+gets seam guides and the badge shows `LAYOUT rXcY`. Outside layout mode the
+arrows adjust speed and density as usual. If a terminal joins with an `--at`
+already taken, it gets that spot and the tile that was there steps aside to the
+next free column of its row.
+
 You don't have to start in the wall: press `J` in any running terminal to join
 (or start) it, and `J` again to leave. Joining adopts the wall's theme, mode,
 speed and density; leaving keeps whatever the wall had at that moment, with the
@@ -190,6 +198,7 @@ Outside screensaver mode, adjust the animation without restarting it:
 | `t` | Cycle through color themes |
 | `r` | Toggle rainbow mode |
 | `j` | Join / leave the video wall |
+| `l` | Layout mode (in the wall): arrows move this tile |
 | `m` | Cycle visualizers: Rain, Pulse, Network |
 | `,` / `.` | Decrease/increase Network-only tempo (Network mode) |
 | `p` | Hide/show the live-control panel |

@@ -27,6 +27,9 @@ SEND_TIMEOUT = 0.25         # a client that can't take a frame for this long is 
                             # blocks on it meanwhile, so keep it short)
 _QUIT_KEYS = (ord('q'), ord('Q'), 27)
 _TOGGLE_KEYS = (ord('j'), ord('J'))
+_LAYOUT_KEYS = (ord('l'), ord('L'))
+_ARROWS = {curses.KEY_UP: 'up', curses.KEY_DOWN: 'down', curses.KEY_LEFT: 'left', curses.KEY_RIGHT: 'right'}
+GUIDE_COLOR = (255, 0, 255)
 
 
 # --- transport ----------------------------------------------------------------
@@ -171,7 +174,8 @@ class _Tile:
         self.conn = conn        # None for the host's own terminal
         self.width = width
         self.height = height    # width == 0: hasn't reported its size yet
-        self.at = at            # declared (row, col), or None
+        self.at = at            # (row, col) on the grid, or None: queue by arrival
+        self.layout_mode = False  # arrows move this tile instead of tuning speed/density
 
 
 # What a stretch inside the wall ended with. ``reason`` is ``'left'`` (the
@@ -192,12 +196,44 @@ def run_host(stdscr, listener, kwargs, at):
     key_queue = _WallInput()
 
     app = App(key_queue, canvas_size=lambda: canvas, **kwargs)
+    app.wall_active = True
     local_screen = Screen(height, width)
     config = wall.snapshot_of(app)
 
     def drop(tile):
         tile.conn.close()
         tiles.remove(tile)
+
+    def sized_tiles():
+        return [t for t in tiles if t.width > 0 and t.height > 0]
+
+    def handle_key(tile, key):
+        """Keys from any tile. L toggles that tile's layout mode, in which
+        its arrows move it on the grid; everything else reaches the app."""
+        if key in _LAYOUT_KEYS:
+            tile.layout_mode = not tile.layout_mode
+            app.show_status('Layout mode: arrows move this tile, L exits'
+                            if tile.layout_mode else 'Layout mode off')
+        elif tile.layout_mode and key in _ARROWS and tile in sized_tiles():
+            sized = sized_tiles()
+            moved = wall.move_position(
+                wall.resolve_positions([t.at for t in sized]), sized.index(tile), _ARROWS[key])
+            for t, position in zip(sized, moved):
+                t.at = position  # from here on every tile's cell is explicit
+        else:
+            key_queue.keys.append(key)
+
+    def admit(tile, message):
+        """First size report of a newcomer: it takes the cell it asked for,
+        and whoever sat there steps aside."""
+        tile.width, tile.height = message['w'], message['h']
+        others = [t for t in sized_tiles() if t is not tile]
+        want = tuple(message['at']) if 'at' in message else None
+        if want is not None:
+            moved = wall.displace(wall.resolve_positions([t.at for t in others]), want)
+            if moved:
+                others[moved[0]].at = moved[1]
+        tile.at = want
 
     try:
         while True:
@@ -207,7 +243,7 @@ def run_host(stdscr, listener, kwargs, at):
             key = stdscr.getch()
             while key != -1:
                 if key != curses.KEY_RESIZE:
-                    key_queue.keys.append(key)
+                    handle_key(local, key)
                 key = stdscr.getch()
             local.height, local.width = stdscr.getmaxyx()
 
@@ -228,13 +264,16 @@ def run_host(stdscr, listener, kwargs, at):
                     continue
                 for message in messages:
                     if message['t'] == 'size':
-                        tile.width, tile.height = message['w'], message['h']
-                        tile.at = tuple(message['at']) if 'at' in message else None
+                        if tile.width == 0:
+                            admit(tile, message)
+                        else:
+                            # Later reports are resizes; the host owns the cell.
+                            tile.width, tile.height = message['w'], message['h']
                     elif message['t'] == 'key':
-                        key_queue.keys.append(message['k'])
+                        handle_key(tile, message['k'])
 
             # The canvas follows the tiles that have reported a size.
-            sized = [t for t in tiles if t.width > 0 and t.height > 0]
+            sized = sized_tiles()
             positions = wall.resolve_positions([t.at for t in sized])
             placements, canvas_height, canvas_width = wall.layout(
                 [(t.width, t.height) for t in sized], positions)
@@ -253,9 +292,16 @@ def run_host(stdscr, listener, kwargs, at):
                         drop(tile)
 
             app.render_frame()
-            if app.panel_visible:
-                for (row, col), (x, y) in zip(positions, placements):
-                    app.draw_text(y, x, ' WALL r{0}c{1} '.format(row, col), reverse=True)
+            editing = any(t.layout_mode for t in sized)
+            if editing:
+                for tile, (x, y) in zip(sized, placements):  # seam guides on every tile
+                    for edge_y in range(y, y + tile.height):
+                        app.add_char(edge_y, x, '|', (GUIDE_COLOR, False, False))
+                        app.add_char(edge_y, x + tile.width - 1, '|', (GUIDE_COLOR, False, False))
+            if app.panel_visible or editing:
+                for tile, (row, col), (x, y) in zip(sized, positions, placements):
+                    label = ' LAYOUT r{0}c{1} ' if tile.layout_mode else ' WALL r{0}c{1} '
+                    app.draw_text(y, x, label.format(row, col), reverse=True)
 
             for tile, (x, y) in zip(sized, placements):
                 cells, bgs = app.screen.extract(y, x, tile.height, tile.width)

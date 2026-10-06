@@ -34,6 +34,43 @@ def resolve_positions(positions):
     return [p if p is not None else (0, i) for i, p in enumerate(positions)]
 
 
+_STEPS = {'up': (-1, 0), 'down': (1, 0), 'left': (0, -1), 'right': (0, 1)}
+
+
+def move_position(positions, index, direction):
+    """Move tile ``index`` one grid cell (``'up'``/``'down'``/``'left'``/
+    ``'right'``) among ``positions`` (resolved ``(row, col)`` per tile).
+    Moving onto an occupied cell swaps the two tiles, so positions never
+    overlap; the grid's edges (row/col 0 and MAX_GRID_INDEX) stop the move.
+    Returns a new list."""
+    row, col = positions[index]
+    step_row, step_col = _STEPS[direction]
+    target = (row + step_row, col + step_col)
+    if not all(0 <= v <= MAX_GRID_INDEX for v in target):
+        return list(positions)
+    moved = list(positions)
+    moved[index] = target
+    if target in positions:
+        moved[positions.index(target)] = (row, col)
+    return moved
+
+
+def displace(positions, want):
+    """A newcomer asks for the grid cell ``want``. If a tile already sits
+    there it has to make room: returns ``(index, new_position)`` — the
+    first free column to its right in the same row — or ``None`` when
+    ``want`` is free. (A newcomer has no previous cell to swap into, so
+    the occupant steps aside instead.)"""
+    if want not in positions:
+        return None
+    row, col = want
+    taken = set(positions)
+    col += 1
+    while (row, col) in taken:
+        col += 1
+    return positions.index(want), (row, col)
+
+
 def layout(sizes, positions=None):
     """Place tiles on the canvas.
 
