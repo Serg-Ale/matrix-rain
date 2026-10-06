@@ -104,10 +104,28 @@ matrix-rain -m network --rainbow -s 7 -d 8  # Fast dense rainbow network
 | `-d` | `--density` | Rain density (1-10) | `7` |
 | `-S` | `--screensaver` | Exit on any keypress | `off` |
 | `-r` | `--rainbow` | Rainbow color cycling mode | `off` |
+| | `--wall` | Join (or start) a video wall with other terminals — see [Video wall](#video-wall) | `off` |
 | `-h` | `--help` | Show help message | - |
 
 Rainbow mode is its own flag (`-r`/`--rainbow`), not a `--color` value — it
 cycles through every theme below rather than picking one.
+
+## Video wall
+
+Run `matrix-rain --wall` in two or more terminals on the same machine and they
+become tiles of one big screen: the animation runs once, across all of them.
+The first terminal becomes the host; the others join it, side by side in the
+order they open. Theme, mode, speed and density are shared — change them in
+any tile and every tile follows.
+
+```bash
+matrix-rain --wall -c cyan    # first terminal: starts the wall
+matrix-rain --wall            # second, third...: join it
+```
+
+`q` or `Esc` in a joined tile only leaves the wall; `q` in the host ends it.
+`--wall` can't be combined with `-S`. The wall is local to your user on this
+machine (a private Unix socket); it doesn't connect across machines.
 
 ### Available Colors
 

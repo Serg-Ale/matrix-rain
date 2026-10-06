@@ -24,6 +24,7 @@ Examples:
   matrix-rain -m network          # Start straight in Network mode
   matrix-rain --rainbow           # Rainbow mode!
   matrix-rain -S                  # Screensaver mode (exit on keypress)
+  matrix-rain --wall              # Video wall: run it in 2+ terminals to join them
   matrix-rain -c green -s 6 -d 9  # Fast, very dense green rain
 
 Colors available: green, red, blue, cyan, magenta, yellow, white, orange, pink, ice, violet
@@ -81,12 +82,26 @@ cycle modes and 'h' for the full live-control panel once it's running.
         help='Rainbow mode - cycling colors'
     )
 
-    return parser.parse_args(argv)
+    parser.add_argument(
+        '--wall',
+        action='store_true',
+        help='Video wall - join (or start) a wall shared with other terminals '
+             'on this machine, so they act as tiles of one big screen'
+    )
+
+    args = parser.parse_args(argv)
+    if args.wall and args.screensaver:
+        parser.error('--wall cannot be combined with -S/--screensaver')
+    return args
 
 
 def _main(stdscr, argv):
     """Entry point wrapped by curses."""
     args = parse_args(argv)
+
+    if args.wall:
+        from .wall_io import run_wall
+        return run_wall(stdscr, args)
 
     # Create and run the app
     app = App(
@@ -119,7 +134,9 @@ def run(argv=None):
 
     # Wrap main in curses wrapper for proper terminal handling
     try:
-        curses.wrapper(_main, argv)
+        message = curses.wrapper(_main, argv)
+        if message:
+            print('wall: ' + message)
     except KeyboardInterrupt:
         pass
     except curses.error as e:

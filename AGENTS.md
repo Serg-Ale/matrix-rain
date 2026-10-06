@@ -32,6 +32,12 @@ Arquivos versionados:
   - `screen.py`: o único lugar que escreve na tela de verdade. Mantém um
     buffer de frame e emite ANSI bruto (true color ou fallback 256,
     conforme `App.truecolor`) — ver "Motor de cor" abaixo para o porquê.
+  - `wall.py`: lógica pura do "video wall" (issues #14–#22) — layout dos
+    tiles e codec JSON em linhas (mensagens `size`/`key`/`frame`) — sem
+    sockets nem `curses`, testada em `tests/test_wall.py`.
+  - `wall_io.py`: a casca de I/O do wall — transporte por socket Unix
+    (`UnixTransport`, atrás de `connect()`/`listen()`/`Connection`), loop
+    do host e loop do cliente. Validada à mão, como o resto do `curses`.
 - `modes/`: um arquivo por modo de visualização, cada um implementando a
   interface `modes.base.Mode` (`reset(app)`, `render(app)`).
   - `rain.py`: chuva digital — `Column`, grades persistentes de
@@ -223,6 +229,18 @@ No modo `network`, `,` e `.` ajustam `NetworkMode.tempo` de `0.1x` a `1.0x`,
 em passos de `0.1x`. `NETWORK_SPEED_SCALE` (em `modes/network.py`) mantém a
 velocidade máxima em 20% da escala global: velocidade global 10 equivale à
 antiga velocidade global 2.
+
+## Video wall
+
+`--wall` (`core.wall_io.run_wall`) liga o terminal a um wall local: o
+primeiro vira **host** e roda o `App` num canvas virtual (a união dos
+tiles, via `App(canvas_size=...)`); os outros viram **clientes**. A cada
+frame o host fatia o canvas por tile (`Screen.extract`) e manda as
+células; o cliente só as desenha (`Screen.load` + `flush`), com o próprio
+suporte a cor. Tiles ficam lado a lado pela ordem de chegada. Teclas dos
+clientes são encaminhadas ao host, exceto `q`/`Esc`, que só tiram o
+cliente do wall. O socket vive no diretório de runtime do usuário e só o
+dono acessa. Os modos não sabem do wall: só veem `app.width`/`app.height`.
 
 ## Convenções e invariantes importantes
 
