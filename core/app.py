@@ -152,9 +152,8 @@ class App:
         return '[' + ('#' * value) + ('.' * (10 - value)) + ']'
 
     def draw_text(self, y: int, x: int, text: str, reverse: bool = False, bold: bool = False):
-        """Write a row of panel text — always neutral white, since the
-        panel was never theme-colored (it used curses' default terminal
-        foreground plus A_REVERSE/A_BOLD before this ticket)."""
+        """Write a row of text in neutral white (panel text and overlay
+        badges are never theme-colored), optionally reversed or bold."""
         for offset, char in enumerate(text):
             self.add_char(y, x + offset, char, ((255, 255, 255), bold, reverse))
 

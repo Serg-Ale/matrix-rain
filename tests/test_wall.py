@@ -81,6 +81,11 @@ class ParseAtTests(unittest.TestCase):
         self.assertEqual(wall.parse_at('1,2'), (1, 2))
         self.assertEqual(wall.parse_at(' 0 , 0 '), (0, 0))
 
+    def test_the_grid_limit_is_inclusive(self):
+        self.assertEqual(wall.parse_at('999,0'), (999, 0))
+        with self.assertRaises(ValueError):
+            wall.parse_at('1000,0')
+
     def test_rejects_malformed_or_negative_positions(self):
         for bad in ('', '1', '1,2,3', 'a,b', '-1,0', '0,-1', '1.5,0', '0,1000000'):
             with self.assertRaises(ValueError):
