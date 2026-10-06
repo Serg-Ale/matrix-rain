@@ -32,11 +32,11 @@ Arquivos versionados:
   - `screen.py`: o único lugar que escreve na tela de verdade. Mantém um
     buffer de frame e emite ANSI bruto (true color ou fallback 256,
     conforme `App.truecolor`) — ver "Motor de cor" abaixo para o porquê.
-  - `wall.py`: lógica pura do "video wall" (issues #14–#22) — layout dos
-    tiles, snapshot de configuração e codec JSON em linhas (mensagens
-    `size`/`key`/`config`/`frame`) — sem sockets nem `curses`, testada em
-    `tests/test_wall.py`. Importa `modes` e `core.palette` só para validar
-    o que chega pelo fio.
+  - `wall.py`: lógica pura do "video wall" (spec #14, tickets #15–#22) —
+    layout dos tiles, gap, snapshot de configuração, sucessão do host e codec
+    JSON em linhas (mensagens `size`/`key`/`config`/`rank`/`frame`) — sem
+    sockets nem `curses`, testada em `tests/test_wall.py`. Importa `modes` e
+    `core.palette` só para validar o que chega pelo fio.
   - `wall_io.py`: a casca de I/O do wall — transporte por socket Unix
     (`UnixTransport`, atrás de `connect()`/`listen()`/`Connection`), loop
     do host e loop do cliente. Validada à mão, como o resto do `curses`.
@@ -54,8 +54,8 @@ Arquivos versionados:
     `m`) e `MODE_CLASSES` (nome → classe).
 - `tests/`: testes de unidade (stdlib `unittest`) para a lógica pura de
   `core/color.py`, `core/palette.py`, `core/wall.py` (layout e codec) e da
-  interface de fatiar/reconstruir do `core/screen.py`. Nada que dependa de `curses` é
-  testado automaticamente — ver "Como executar e validar".
+  interface de fatiar/reconstruir do `core/screen.py`. Nada que dependa de
+  `curses` é testado automaticamente — ver "Como executar e validar".
 - `README.md`: documentação voltada a pessoas e exemplos de uso.
 - `assets/demo.gif`: demonstração visual usada no README.
 
@@ -264,27 +264,27 @@ vão da esquerda para a direita pela coluna, a linha tem a altura do seu
 tile mais alto e os tiles alinham pelo topo; sem `--at`, o tile entra na
 fila da linha 0 pela ordem de chegada, na primeira coluna que ninguém
 declarou (`wall.layout`/`wall.resolve_positions`; nunca há duas posições
-iguais). Enquanto o painel está visível, cada tile mostra um selo `WALL
-rXcY` no seu canto. Teclas dos clientes são encaminhadas ao host, exceto
-`q`/`Esc` (encerram aquele terminal) e `J` (sai do wall). O socket vive no
-diretório de runtime do usuário (`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid
-no nome se não houver) e só o dono acessa. Quem é host é quem segura um
-`flock` num arquivo `.lock` ao lado do socket: o kernel o solta quando o
-host morre, então não sobra socket órfão e dois terminais abrindo juntos
-não viram dois hosts. Os modos não sabem do wall: só veem
-`app.width`/`app.height`. `J` alterna a participação: em standalone, entra
-no wall (vira host se não houver um; senão vira cliente e a configuração
-do wall vence); dentro, sai e o terminal reconstrói o `App` com o último
-snapshot de configuração (`wall.snapshot_of`: cor, modo, velocidade,
-densidade e arco-íris — as chaves de `wall.SNAPSHOT_KEYS`, que são
-argumentos do construtor do `App` — mais o `gap`, que `wall.app_settings`
-filtra), com a simulação recomeçando. O host manda a configuração aos
-clientes (mensagem `config`) ao aceitá-los e sempre que ela muda. Se o
-host sai (`q`, `Ctrl+C`, queda ou `J`), há **sucessão**: o host manda a
-cada cliente o seu posto (mensagem `rank`, 0 = o mais antigo ainda
-conectado, reenviado quando alguém entra ou cai); ao perder o host, o
-cliente fica em `run_session` (resultado `gone`) e, em
-`run_wall(rank=...)`, procura um novo host por
+iguais). Enquanto o painel está visível (e também no modo de layout), cada
+tile mostra um selo `WALL rXcY` no seu canto. Teclas dos clientes são
+encaminhadas ao host, exceto `q`/`Esc` (encerram aquele terminal) e `J`
+(sai do wall). O socket vive no diretório de runtime do usuário
+(`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid no nome se não houver) e só o
+dono acessa. Quem é host é quem segura um `flock` num arquivo `.lock` ao
+lado do socket: o kernel o solta quando o host morre, então não sobra
+socket órfão e dois terminais abrindo juntos não viram dois hosts. Os
+modos não sabem do wall: só veem `app.width`/`app.height`. `J` alterna a
+participação: em standalone, entra no wall (vira host se não houver um;
+senão vira cliente e a configuração do wall vence); dentro, sai e o
+terminal reconstrói o `App` com o último snapshot de configuração
+(`wall.snapshot_of`: cor, modo, velocidade, densidade e arco-íris — as
+chaves de `wall.SNAPSHOT_KEYS`, que são argumentos do construtor do `App`
+— mais o `gap`, que `wall.app_settings` filtra), com a simulação
+recomeçando. O host manda a configuração aos clientes (mensagem `config`)
+ao aceitá-los e sempre que ela muda. Se o host sai (`q`, `Ctrl+C`, queda
+ou `J`), há **sucessão**: o host manda a cada cliente o seu posto
+(mensagem `rank`, 0 = o mais antigo ainda conectado, reenviado quando
+alguém entra ou cai); ao perder o host, o cliente fica em `run_session`
+(resultado `gone`) e, em `run_wall(rank=...)`, procura um novo host por
 `wall.promotion_delay(rank)` antes de tentar virar um — o `flock` garante
 um vencedor só, e os demais reconectam. O novo host usa o último snapshot
 (incluindo o gap) e a simulação recomeça; as posições movidas pelo modo de
@@ -382,6 +382,10 @@ host. O painel ganha uma linha (`App.wall_info`) com J/L e o gap.
   mudança de estética for intencional.
 - `modes/scanner.py` (`ScannerMode`) não está registrado em `MODE_CLASSES` —
   código pré-existente, preservado mas inerte (ver comentário no arquivo).
+- Wall: o JSON em linhas custa pouco de CPU (medido: encode ~1,2 ms para
+  2 mil células, ~3 ms para 5 mil e ~7 ms para 11 mil por frame, e o mesmo
+  para decodificar, contra 30 ms de orçamento); o gargalo é o redesenho
+  completo do terminal, não o codec.
 - Wall: só na mesma máquina (socket Unix; TCP/rede ficou fora da v1); as
   larguras das linhas da grade devem ser parecidas, porque a diferença fica
   sem imagem; a moldura entre janelas só é compensada pelo gap, ajustado à

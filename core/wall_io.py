@@ -117,6 +117,9 @@ class UnixTransport:
         except (FileNotFoundError, ConnectionRefusedError):
             sock.close()
             return None
+        except OSError:
+            sock.close()
+            raise
         return Connection(sock)
 
     def listen(self):
@@ -197,8 +200,12 @@ def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
     canvas = (height, width)
     key_queue = _WallInput()
 
-    app = App(key_queue, canvas_size=lambda: canvas, **kwargs)
-    local_screen = Screen(height, width)
+    try:
+        app = App(key_queue, canvas_size=lambda: canvas, **kwargs)
+        local_screen = Screen(height, width)
+    except BaseException:
+        listener.close()  # don't keep the host lock if we never got going
+        raise
     config = wall.snapshot_of(app, gap)
 
     def send_ranks():

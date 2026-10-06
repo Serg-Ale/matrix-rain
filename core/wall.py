@@ -175,13 +175,14 @@ def app_settings(snapshot):
 
 # --- wire codec ---------------------------------------------------------------
 #
-# One JSON object per line. Three message types:
-#   size  client -> host   {"t":"size","w":..,"h":..[,"at":[row,col]]}
-#   config host -> client  {"t":"config","color":..,"mode":..,"speed":..,"density":..,"rainbow":..,"gap":[cols,rows]}
-#   rank  host -> client   {"t":"rank","n":..}   (0 = oldest client still connected)
-#   key   client -> host   {"t":"key","k":<curses key code>}
-#   frame host -> client   {"t":"frame","cells":[[y,x,char,[r,g,b],bold,reverse],..],
-#                           "bgs":[[y,x,[r,g,b]],..]}
+# One JSON object per line. Five message types:
+#   size   client -> host   {"t":"size","w":..,"h":..[,"at":[row,col]]}
+#   key    client -> host   {"t":"key","k":<curses key code>}
+#   config host -> client   {"t":"config","color":..,"mode":..,"speed":..,
+#                            "density":..,"rainbow":..,"gap":[cols,rows]}
+#   rank   host -> client   {"t":"rank","n":..}   (0 = oldest client still connected)
+#   frame  host -> client   {"t":"frame","cells":[[y,x,char,[r,g,b],bold,reverse],..],
+#                            "bgs":[[y,x,[r,g,b]],..]}
 
 def size_message(width, height, at=None):
     """``at`` is the tile's declared ``(row, col)``, if it declared one."""
