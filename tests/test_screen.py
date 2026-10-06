@@ -52,6 +52,16 @@ class ExtractTests(unittest.TestCase):
 
         self.assertEqual(sorted(c[:3] for c in cells), [(1, 3, '\u30a4'), (2, 4, 'A')])
 
+    def test_extract_keeps_the_background_under_a_dropped_full_width_character(self):
+        screen = Screen(10, 20)
+        screen.set_bg(1, 4, RED)
+        screen.set_cell(1, 4, '\u30a2', WHITE)
+
+        cells, bgs = screen.extract(0, 0, 5, 5)
+
+        self.assertEqual(cells, [])
+        self.assertEqual(bgs, [(1, 4, RED)])
+
     def test_extract_keeps_a_half_width_katakana_on_the_last_column(self):
         screen = Screen(10, 20)
         screen.set_cell(1, 4, '\uff71', WHITE)  # half-width katakana

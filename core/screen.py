@@ -84,11 +84,11 @@ class Screen:
                 if cell is not None:
                     char, rgb, bold, reverse = cell
                     # A full-width character on the last column would
-                    # spill into whatever sits beside the rectangle.
-                    if x == width - 1 and unicodedata.east_asian_width(char) in ('W', 'F'):
+                    # spill into whatever sits beside the rectangle, so
+                    # it's dropped — its cell then reads as bg-only.
+                    if not (x == width - 1 and unicodedata.east_asian_width(char) in ('W', 'F')):
+                        cells.append((y, x, char, rgb, bold, reverse))
                         continue
-                    cells.append((y, x, char, rgb, bold, reverse))
-                    continue
                 bg = self._bg[top + y][left + x]
                 if bg is not None:
                     bgs.append((y, x, bg))

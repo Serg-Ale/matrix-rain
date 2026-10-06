@@ -101,7 +101,10 @@ bruto direto pro terminal.
   fatia o frame do canvas virtual e outro o desenha.
 - `App` aceita `canvas_size` (um callable que devolve `(altura, largura)`)
   para desenhar numa área independente do tamanho do terminal; por padrão
-  é o próprio `stdscr.getmaxyx()`.
+  é o próprio `stdscr.getmaxyx()`. `Screen.flush()` escreve `altura x
+  largura` direto no terminal físico, então só deve ser chamado num
+  `Screen` do tamanho do terminal — com um canvas maior, fatie com
+  `extract()` e dê `flush()` na fatia.
 - `Screen` reposiciona o cursor explicitamente antes de cada caractere (em
   vez de confiar no avanço automático do terminal) e nunca escreve no
   canto inferior-direito — duas lições vindas do protótipo de fundo/
