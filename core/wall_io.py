@@ -26,6 +26,7 @@ FRAME_DELAY = 0.03          # same ~33 FPS pacing as App.run
 SEND_TIMEOUT = 0.25         # a client that can't take a frame for this long is dropped (the host
                             # blocks on it meanwhile, so keep it short)
 _QUIT_KEYS = (ord('q'), ord('Q'), 27)
+_TOGGLE_KEYS = (ord('j'), ord('J'))
 
 
 # --- transport ----------------------------------------------------------------
@@ -299,7 +300,7 @@ def run_client(stdscr, conn, at=None):
             while key != -1:
                 if key in _QUIT_KEYS:
                     return WallResult('quit', config, 'left the wall')
-                if key in (ord('j'), ord('J')):
+                if key in _TOGGLE_KEYS:
                     return WallResult('left', config, None)
                 if key != curses.KEY_RESIZE:
                     conn.send(wall.key_message(key))
@@ -367,8 +368,7 @@ def run_session(stdscr, args, transport=None):
     the wall — its own), leaving keeps whatever the wall had last.
     Returns a message to print on exit, or None.
     """
-    settings = {'color': args.color, 'mode': args.mode, 'speed': args.speed,
-                'density': args.density, 'rainbow': args.rainbow}
+    settings = {key: getattr(args, key) for key in wall.SNAPSHOT_KEYS}
     in_wall = args.wall
     while True:
         if in_wall:

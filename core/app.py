@@ -178,9 +178,9 @@ class App:
         pulse_thickness = self.modes['pulse'].thickness
 
         if self.active_mode == 'network':
-            context_row = ',/. net:{0:.1f}x  M/T/R/P/J controls'.format(network_tempo)
+            context_row = ',/. net:{0:.1f}x  J wall  M/T/R/P'.format(network_tempo)
         elif self.active_mode == 'pulse':
-            context_row = ',/. thickness:{0:.1f}x  M/T/R/P/J controls'.format(pulse_thickness)
+            context_row = ',/. thickness:{0:.1f}x  J wall  M/T/R/P'.format(pulse_thickness)
         else:
             context_row = 'M mode T theme R rainbow J wall P hide'
 
@@ -270,7 +270,8 @@ class App:
                 self.modes['network'].reset(self)
 
     def check_input(self) -> bool:
-        """Check for user input. Returns True if should exit."""
+        """Check for user input. Returns True if the loop should stop: to
+        quit, or — J, ``wall_toggle_requested`` — to join/leave the wall."""
         try:
             key = self.stdscr.getch()
             if key != -1:  # A key was pressed

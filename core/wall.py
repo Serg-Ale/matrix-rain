@@ -67,11 +67,15 @@ def layout(sizes, positions=None):
 
 # --- shared settings ----------------------------------------------------------
 
+# The settings every tile shares. They're named after App's constructor
+# arguments (and the CLI's attributes), so ``App(stdscr, **snapshot)``
+# rebuilds them.
+SNAPSHOT_KEYS = ('color', 'mode', 'speed', 'density', 'rainbow')
+
 def snapshot_of(app):
-    """The settings every tile shares, as a dict whose keys are App's own
-    constructor arguments — so ``App(stdscr, **snapshot)`` rebuilds them.
-    The host broadcasts it, and a terminal leaving the wall keeps the last
-    one it saw."""
+    """The shared settings (SNAPSHOT_KEYS) read off the app. The host
+    broadcasts it, and a terminal leaving the wall keeps the last one it
+    saw."""
     return {
         'color': app.color_name,
         'mode': app.active_mode,
@@ -125,7 +129,7 @@ def config_message(snapshot):
 
 def config_snapshot(message):
     """A config message back into a snapshot dict."""
-    return {key: message[key] for key in ('color', 'mode', 'speed', 'density', 'rainbow')}
+    return {key: message[key] for key in SNAPSHOT_KEYS}
 
 
 def encode(message):

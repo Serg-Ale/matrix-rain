@@ -4,6 +4,7 @@ codec). No sockets, no curses.
 Run: python3 -m unittest discover -s tests -t .
 """
 
+import inspect
 import os
 import sys
 import unittest
@@ -12,6 +13,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import wall  # noqa: E402
+from core.app import App  # noqa: E402
 
 
 class LayoutTests(unittest.TestCase):
@@ -103,9 +105,14 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(wall.snapshot_of(self.app_like()), {
             'color': 'cyan', 'mode': 'pulse', 'speed': 7, 'density': 3, 'rainbow': False})
 
-    def test_snapshot_keys_are_app_constructor_arguments(self):
-        # So a terminal leaving the wall can simply build App(**snapshot).
-        self.assertEqual(sorted(wall.snapshot_of(self.app_like())), ['color', 'density', 'mode', 'rainbow', 'speed'])
+    def test_snapshot_keys_are_arguments_the_app_constructor_accepts(self):
+        # So a terminal leaving the wall can simply build App(stdscr, **snapshot).
+        accepted = inspect.signature(App.__init__).parameters
+        snapshot = wall.snapshot_of(self.app_like())
+
+        self.assertEqual(sorted(snapshot), sorted(wall.SNAPSHOT_KEYS))
+        for key in snapshot:
+            self.assertIn(key, accepted)
 
     def test_every_speed_step_survives_the_float_roundtrip(self):
         for speed in range(1, 11):

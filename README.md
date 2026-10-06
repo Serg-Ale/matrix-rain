@@ -149,6 +149,8 @@ own with the wall's last settings. (While you're hosting, `J` dissolves the
 wall the same way.)
 
 `q` or `Esc` in a joined tile quits that terminal; `q` in the host quits the host.
+`--wall` can't be combined with `-S`. The wall is local to your user on this
+machine (a private Unix socket); it doesn't connect across machines.
 
 ### Available Colors
 

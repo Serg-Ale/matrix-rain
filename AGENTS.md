@@ -33,8 +33,10 @@ Arquivos versionados:
     buffer de frame e emite ANSI bruto (true color ou fallback 256,
     conforme `App.truecolor`) — ver "Motor de cor" abaixo para o porquê.
   - `wall.py`: lógica pura do "video wall" (issues #14–#22) — layout dos
-    tiles e codec JSON em linhas (mensagens `size`/`key`/`frame`) — sem
-    sockets nem `curses`, testada em `tests/test_wall.py`.
+    tiles, snapshot de configuração e codec JSON em linhas (mensagens
+    `size`/`key`/`config`/`frame`) — sem sockets nem `curses`, testada em
+    `tests/test_wall.py`. Importa `modes` e `core.palette` só para validar
+    o que chega pelo fio.
   - `wall_io.py`: a casca de I/O do wall — transporte por socket Unix
     (`UnixTransport`, atrás de `connect()`/`listen()`/`Connection`), loop
     do host e loop do cliente. Validada à mão, como o resto do `curses`.
@@ -232,7 +234,7 @@ antiga velocidade global 2.
 
 ## Video wall
 
-`--wall` (`core.wall_io.run_wall`) liga o terminal a um wall local: o
+`--wall` (`core.wall_io.run_session`) liga o terminal a um wall local: o
 primeiro vira **host** e roda o `App` num canvas virtual (a união dos
 tiles, via `App(canvas_size=...)`); os outros viram **clientes**. A cada
 frame o host fatia o canvas por tile (`Screen.extract`) e manda as
