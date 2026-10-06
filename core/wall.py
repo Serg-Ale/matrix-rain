@@ -9,6 +9,10 @@ draw what they receive.
 
 import json
 
+from modes import MODE_ORDER
+
+from .palette import COLOR_PALETTE
+
 MAX_GRID_INDEX = 999        # row/col of a tile on the wall's grid
 
 
@@ -61,10 +65,27 @@ def layout(sizes, positions=None):
     return placements, max(y, 1), max(canvas_width, 1)
 
 
+# --- shared settings ----------------------------------------------------------
+
+def snapshot_of(app):
+    """The settings every tile shares, as a dict whose keys are App's own
+    constructor arguments — so ``App(stdscr, **snapshot)`` rebuilds them.
+    The host broadcasts it, and a terminal leaving the wall keeps the last
+    one it saw."""
+    return {
+        'color': app.color_name,
+        'mode': app.active_mode,
+        'speed': int(round(app.base_speed * 10)),
+        'density': app.density,
+        'rainbow': app.rainbow,
+    }
+
+
 # --- wire codec ---------------------------------------------------------------
 #
 # One JSON object per line. Three message types:
 #   size  client -> host   {"t":"size","w":..,"h":..[,"at":[row,col]]}
+#   config host -> client  {"t":"config","color":..,"mode":..,"speed":..,"density":..,"rainbow":..}
 #   key   client -> host   {"t":"key","k":<curses key code>}
 #   frame host -> client   {"t":"frame","cells":[[y,x,char,[r,g,b],bold,reverse],..],
 #                           "bgs":[[y,x,[r,g,b]],..]}
@@ -94,6 +115,17 @@ def frame_cells(message):
     cells = [(y, x, char, tuple(rgb), bold, reverse) for y, x, char, rgb, bold, reverse in message['cells']]
     bgs = [(y, x, tuple(rgb)) for y, x, rgb in message['bgs']]
     return cells, bgs
+
+
+def config_message(snapshot):
+    message = {'t': 'config'}
+    message.update(snapshot)
+    return message
+
+
+def config_snapshot(message):
+    """A config message back into a snapshot dict."""
+    return {key: message[key] for key in ('color', 'mode', 'speed', 'density', 'rainbow')}
 
 
 def encode(message):
@@ -128,6 +160,12 @@ def _valid(message):
                 and _is_valid_at(message.get('at')))
     if kind == 'key':
         return _is_int(message.get('k'))
+    if kind == 'config':
+        return (isinstance(message.get('color'), str) and message['color'] in COLOR_PALETTE
+                and isinstance(message.get('mode'), str) and message['mode'] in MODE_ORDER
+                and _is_int(message.get('speed')) and 1 <= message['speed'] <= 10
+                and _is_int(message.get('density')) and 1 <= message['density'] <= 10
+                and isinstance(message.get('rainbow'), bool))
     if kind == 'frame':
         return isinstance(message.get('cells'), list) and isinstance(message.get('bgs'), list)
     return False

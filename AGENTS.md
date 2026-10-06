@@ -244,13 +244,22 @@ tile mais alto e os tiles alinham pelo topo; sem `--at`, o tile entra na
 fila da linha 0 pela ordem de chegada
 (`wall.layout`/`wall.resolve_positions`). Enquanto o painel está visível,
 cada tile mostra um selo `WALL rXcY` no seu canto. Teclas dos clientes são
-encaminhadas ao host, exceto `q`/`Esc`, que só tiram o cliente do wall. O
-socket vive no diretório de runtime do usuário (`$XDG_RUNTIME_DIR`, ou
-`/tmp` com o uid no nome se não houver) e só o dono acessa. Quem é host é
-quem segura um `flock` num arquivo `.lock` ao lado do socket: o kernel o
-solta quando o host morre, então não sobra socket órfão e dois terminais
-abrindo juntos não viram dois hosts. Os modos não sabem do wall: só veem
-`app.width`/`app.height`.
+encaminhadas ao host, exceto `q`/`Esc` (encerram aquele terminal) e `J`
+(sai do wall). O socket vive no diretório de runtime do usuário
+(`$XDG_RUNTIME_DIR`, ou `/tmp` com o uid no nome se não houver) e só o
+dono acessa. Quem é host é quem segura um `flock` num arquivo `.lock` ao
+lado do socket: o kernel o solta quando o host morre, então não sobra
+socket órfão e dois terminais abrindo juntos não viram dois hosts. Os
+modos não sabem do wall: só veem `app.width`/`app.height`. `J` alterna a
+participação: em standalone, entra no wall (vira host se não houver um;
+senão vira cliente e a configuração do wall vence); dentro, sai e o
+terminal reconstrói o `App` com o último snapshot de configuração
+(`wall.snapshot_of`: cor, modo, velocidade, densidade, arco-íris — as
+chaves são os argumentos do construtor do `App`), com a simulação
+recomeçando. O host manda a configuração aos clientes (mensagem `config`)
+ao aceitá-los e sempre que ela muda. Se o host fecha, os clientes seguem
+standalone com o último snapshot. `core.wall_io.run_session` é o ciclo de
+vida de um terminal (standalone ⇄ wall).
 
 ## Convenções e invariantes importantes
 

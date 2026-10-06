@@ -7,6 +7,7 @@ Run: python3 -m unittest discover -s tests -t .
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -90,6 +91,45 @@ class ParseAtTests(unittest.TestCase):
         for bad in ('', '1', '1,2,3', 'a,b', '-1,0', '0,-1', '1.5,0', '0,1000000'):
             with self.assertRaises(ValueError):
                 wall.parse_at(bad)
+
+
+class SnapshotTests(unittest.TestCase):
+    def app_like(self, **overrides):
+        state = dict(color_name='cyan', active_mode='pulse', base_speed=0.7, density=3, rainbow=False)
+        state.update(overrides)
+        return SimpleNamespace(**state)
+
+    def test_snapshot_reads_the_shared_settings_off_the_app(self):
+        self.assertEqual(wall.snapshot_of(self.app_like()), {
+            'color': 'cyan', 'mode': 'pulse', 'speed': 7, 'density': 3, 'rainbow': False})
+
+    def test_snapshot_keys_are_app_constructor_arguments(self):
+        # So a terminal leaving the wall can simply build App(**snapshot).
+        self.assertEqual(sorted(wall.snapshot_of(self.app_like())), ['color', 'density', 'mode', 'rainbow', 'speed'])
+
+    def test_every_speed_step_survives_the_float_roundtrip(self):
+        for speed in range(1, 11):
+            snapshot = wall.snapshot_of(self.app_like(base_speed=speed / 10.0))
+            self.assertEqual(snapshot['speed'], speed)
+
+    def test_config_message_roundtrips_the_snapshot(self):
+        snapshot = wall.snapshot_of(self.app_like(rainbow=True))
+        decoder = wall.LineDecoder()
+
+        (message,) = decoder.feed(wall.encode(wall.config_message(snapshot)))
+
+        self.assertEqual(wall.config_snapshot(message), snapshot)
+
+    def test_decoder_rejects_invalid_configs(self):
+        good = wall.snapshot_of(self.app_like())
+        bad_variants = [
+            dict(good, speed=0), dict(good, speed=11), dict(good, density=0), dict(good, density=11),
+            dict(good, speed='5'), dict(good, color='chartreuse'), dict(good, mode='scanner'),
+            dict(good, rainbow='yes'), dict(good, color=['green']), dict(good, mode={'a': 1}), {k: v for k, v in good.items() if k != 'mode'},
+        ]
+        raw = b''.join(wall.encode(wall.config_message(v)) for v in bad_variants)
+
+        self.assertEqual(wall.LineDecoder().feed(raw), [])
 
 
 class CodecTests(unittest.TestCase):

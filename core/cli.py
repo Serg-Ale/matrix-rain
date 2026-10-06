@@ -5,7 +5,6 @@ import sys
 
 from modes import MODE_ORDER
 
-from .app import App
 from .palette import COLOR_PALETTE
 from .wall import parse_at
 
@@ -121,23 +120,9 @@ cycle modes and 'h' for the full live-control panel once it's running.
 
 def _main(stdscr, argv):
     """Entry point wrapped by curses."""
-    args = parse_args(argv)
+    from .wall_io import run_session
 
-    if args.wall:
-        from .wall_io import run_wall
-        return run_wall(stdscr, args)
-
-    # Create and run the app
-    app = App(
-        stdscr,
-        color=args.color,
-        mode=args.mode,
-        speed=args.speed,
-        density=args.density,
-        screensaver=args.screensaver,
-        rainbow=args.rainbow,
-    )
-    app.run()
+    return run_session(stdscr, parse_args(argv))
 
 
 def run(argv=None):

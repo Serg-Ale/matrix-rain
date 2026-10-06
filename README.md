@@ -141,9 +141,14 @@ difference is simply blank. While the control panel is visible (`p` toggles
 it), each tile shows its own `WALL rXcY` badge in the corner. Terminals that
 don't pass `--at` queue up in row 0 in the order they join.
 
-`q` or `Esc` in a joined tile only leaves the wall; `q` in the host ends it.
-`--wall` can't be combined with `-S`. The wall is local to your user on this
-machine (a private Unix socket); it doesn't connect across machines.
+You don't have to start in the wall: press `J` in any running terminal to join
+(or start) it, and `J` again to leave. Joining adopts the wall's theme, mode,
+speed and density; leaving keeps whatever the wall had at that moment, with the
+animation starting over. If the host closes, the other tiles carry on on their
+own with the wall's last settings. (While you're hosting, `J` dissolves the
+wall the same way.)
+
+`q` or `Esc` in a joined tile quits that terminal; `q` in the host quits the host.
 
 ### Available Colors
 
@@ -182,6 +187,7 @@ Outside screensaver mode, adjust the animation without restarting it:
 | `A` / `←` / `[` | Decrease density (fewer streams) |
 | `t` | Cycle through color themes |
 | `r` | Toggle rainbow mode |
+| `j` | Join / leave the video wall |
 | `m` | Cycle visualizers: Rain, Pulse, Network |
 | `,` / `.` | Decrease/increase Network-only tempo (Network mode) |
 | `p` | Hide/show the live-control panel |

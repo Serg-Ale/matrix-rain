@@ -15,6 +15,7 @@ import os
 import select
 import socket
 import time
+from collections import namedtuple
 
 from . import color as color_engine
 from . import wall
@@ -172,19 +173,26 @@ class _Tile:
         self.at = at            # declared (row, col), or None
 
 
-def run_host(stdscr, listener, args):
+# What a stretch inside the wall ended with. ``reason`` is ``'left'`` (the
+# user pressed J), ``'gone'`` (the wall dissolved under a client) or
+# ``'quit'`` (q/Esc/Ctrl+C); ``snapshot`` is the last shared settings seen,
+# for the terminal to carry back to standalone; ``message`` is what to
+# print when quitting.
+WallResult = namedtuple('WallResult', 'reason snapshot message')
+
+
+def run_host(stdscr, listener, kwargs, at):
     curses.curs_set(0)
     stdscr.nodelay(True)
     height, width = stdscr.getmaxyx()
-    local = _Tile(None, width, height, args.at)
+    local = _Tile(None, width, height, at)
     tiles = [local]
     canvas = (height, width)
     key_queue = _WallInput()
 
-    app = App(key_queue, color=args.color, mode=args.mode, speed=args.speed,
-              density=args.density, rainbow=args.rainbow,
-              canvas_size=lambda: canvas)
+    app = App(key_queue, canvas_size=lambda: canvas, **kwargs)
     local_screen = Screen(height, width)
+    config = wall.snapshot_of(app)
 
     def drop(tile):
         tile.conn.close()
@@ -207,7 +215,10 @@ def run_host(stdscr, listener, args):
             ready, _, _ = select.select(watched, [], [], 0)
             for source in ready:
                 if source is listener:
-                    tiles.append(_Tile(listener.accept()))
+                    newcomer = _Tile(listener.accept())
+                    tiles.append(newcomer)
+                    if not newcomer.conn.send(wall.config_message(config)):
+                        drop(newcomer)
                     continue
                 tile = next(t for t in tiles if t.conn is source)
                 messages = tile.conn.receive()
@@ -232,6 +243,14 @@ def run_host(stdscr, listener, args):
                 break
             app.handle_resize()
 
+            # Keep every client's idea of the shared settings current.
+            current = wall.snapshot_of(app)
+            if current != config:
+                config = current
+                for tile in list(tiles):
+                    if tile.conn and not tile.conn.send(wall.config_message(config)):
+                        drop(tile)
+
             app.render_frame()
             if app.panel_visible:
                 for (row, col), (x, y) in zip(positions, placements):
@@ -250,13 +269,16 @@ def run_host(stdscr, listener, args):
             app.frame_count += 1
             time.sleep(max(0.01, FRAME_DELAY - (time.time() - frame_start)))
     except KeyboardInterrupt:
-        pass
+        app.wall_toggle_requested = False
     finally:
         for tile in tiles:
             if tile.conn:
                 tile.conn.close()
         listener.close()
-    return 'wall closed'
+    snapshot = wall.snapshot_of(app)
+    if app.wall_toggle_requested:
+        return WallResult('left', snapshot, None)
+    return WallResult('quit', snapshot, 'wall closed')
 
 
 # --- client -------------------------------------------------------------------
@@ -268,14 +290,17 @@ def run_client(stdscr, conn, at=None):
     height, width = stdscr.getmaxyx()
     screen = Screen(height, width)
     sent_size = None
+    config = None
 
     try:
         while True:
-            # Keys go to the host; q/Esc only leave the wall.
+            # Keys go to the host; q/Esc quit, J leaves the wall.
             key = stdscr.getch()
             while key != -1:
                 if key in _QUIT_KEYS:
-                    return 'left the wall'
+                    return WallResult('quit', config, 'left the wall')
+                if key in (ord('j'), ord('J')):
+                    return WallResult('left', config, None)
                 if key != curses.KEY_RESIZE:
                     conn.send(wall.key_message(key))
                 key = stdscr.getch()
@@ -283,7 +308,7 @@ def run_client(stdscr, conn, at=None):
             height, width = stdscr.getmaxyx()
             if (height, width) != sent_size:
                 if not conn.send(wall.size_message(width, height, at)):
-                    return 'host closed the wall'
+                    return WallResult('gone', config, None)
                 sent_size = (height, width)
 
             ready, _, _ = select.select([conn], [], [], 0.01)
@@ -291,8 +316,11 @@ def run_client(stdscr, conn, at=None):
                 continue
             messages = conn.receive()
             if messages is None:
-                return 'host closed the wall'
+                return WallResult('gone', config, None)
 
+            for message in messages:
+                if message['t'] == 'config':
+                    config = wall.config_snapshot(message)
             frames = [m for m in messages if m['t'] == 'frame']
             if not frames:
                 continue
@@ -310,14 +338,14 @@ def run_client(stdscr, conn, at=None):
 
 # --- entry --------------------------------------------------------------------
 
-def run_wall(stdscr, args, transport=None):
-    """Join the wall if a host is running, otherwise become the host.
-    Returns a short message for the caller to print once curses is closed."""
+def run_wall(stdscr, kwargs, at=None, transport=None):
+    """Join the wall if a host is running, otherwise become the host with
+    ``kwargs`` (App's constructor settings) as the wall's settings."""
     transport = transport or UnixTransport()
     for _ in range(40):
         conn = transport.connect()
         if conn:
-            return run_client(stdscr, conn, args.at)
+            return run_client(stdscr, conn, at)
         try:
             listener = transport.listen()
         except OSError as error:
@@ -327,5 +355,33 @@ def run_wall(stdscr, args, transport=None):
             # still starting up. Give it a moment, then try joining again.
             time.sleep(0.05)
             continue
-        return run_host(stdscr, listener, args)
+        return run_host(stdscr, listener, kwargs, at)
     raise RuntimeError('could not join or create the wall')
+
+
+def run_session(stdscr, args, transport=None):
+    """A terminal's whole life: standalone and the wall, back and forth.
+
+    J joins the wall from standalone and leaves it from inside; entering
+    adopts the wall's settings (the host's, or — when this terminal starts
+    the wall — its own), leaving keeps whatever the wall had last.
+    Returns a message to print on exit, or None.
+    """
+    settings = {'color': args.color, 'mode': args.mode, 'speed': args.speed,
+                'density': args.density, 'rainbow': args.rainbow}
+    in_wall = args.wall
+    while True:
+        if in_wall:
+            result = run_wall(stdscr, settings, args.at, transport)
+            if result.reason == 'quit':
+                return result.message
+            if result.snapshot:
+                settings = result.snapshot
+            in_wall = False
+        else:
+            app = App(stdscr, screensaver=args.screensaver, **settings)
+            app.run()
+            if not app.wall_toggle_requested:
+                return None
+            settings = wall.snapshot_of(app)
+            in_wall = True

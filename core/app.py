@@ -35,6 +35,9 @@ class App:
         self.screensaver = screensaver
         self.rainbow = rainbow
         self.frame_count = 0
+        # Set by the J key: join the video wall (when standalone) or leave it
+        # (when hosting) — run()/the host loop stop and the session decides.
+        self.wall_toggle_requested = False
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
         # core.cli's argparse choices already guarantee a valid mode for
@@ -175,11 +178,11 @@ class App:
         pulse_thickness = self.modes['pulse'].thickness
 
         if self.active_mode == 'network':
-            context_row = ',/. net:{0:.1f}x  M/T/R/P controls'.format(network_tempo)
+            context_row = ',/. net:{0:.1f}x  M/T/R/P/J controls'.format(network_tempo)
         elif self.active_mode == 'pulse':
-            context_row = ',/. thickness:{0:.1f}x  M/T/R/P controls'.format(pulse_thickness)
+            context_row = ',/. thickness:{0:.1f}x  M/T/R/P/J controls'.format(pulse_thickness)
         else:
-            context_row = 'M mode  T theme  R rainbow  P hide'
+            context_row = 'M mode T theme R rainbow J wall P hide'
 
         rows = [
             '+' + ('-' * (panel_width - 2)) + '+',
@@ -283,6 +286,9 @@ class App:
                     self.change_density(1)
                 elif key in (curses.KEY_LEFT, ord('['), ord('a'), ord('A')):
                     self.change_density(-1)
+                elif key == ord('j') or key == ord('J'):
+                    self.wall_toggle_requested = True
+                    return True
                 elif key == ord('t') or key == ord('T'):
                     self.cycle_theme()
                 elif key == ord('m') or key == ord('M'):
