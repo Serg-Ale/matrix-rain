@@ -180,6 +180,25 @@ verificação manual em um terminal 256 cores:
 - fora de `-S`, altere velocidade e densidade durante a animação e confira o
   painel persistente de estado.
 
+Mexeu no wall (`core/wall.py`, `core/wall_io.py`, `Screen.extract`/`load`,
+`App.canvas_size`)? Rode os testes e, além do checklist acima, valide com
+janelas **reais** (um pseudo-terminal não julga continuidade visual):
+
+- abra 2 terminais lado a lado com `--wall` e depois uma grade 2D com
+  `--at 0,0`, `--at 1,0`, `--at 1,1` (um em cima, dois embaixo): Rain, Pulse
+  e Network devem atravessar as emendas como uma imagem só;
+- repita em true color e com `COLORTERM=` forçando o fallback de 256 cores
+  (a cor é decidida por terminal: um pode ser true color e o outro não);
+- com um seam visível, ajuste o gap (`< >` e `{ }`) até a moldura sumir;
+- redimensione uma janela, abra um terceiro tile e feche um tile em
+  andamento: a imagem se reorganiza sem buracos;
+- `J` entra e sai do wall (ao sair, o terminal mantém tema e modo do wall);
+  `L` move um tile pelas setas e troca com o ocupante;
+- feche o host (`q`, `Ctrl+C`, `kill -9`): o cliente mais antigo assume com o
+  mesmo tema, modo e gap e os outros reconectam, sem dois hosts nem nenhum;
+- `q`/`Esc`/`Ctrl+C` restauram o terminal em todos os tiles, e o socket do
+  wall some quando o último terminal sai.
+
 ## Arquitetura e fluxo de execução
 
 `core.cli.parse_args()` define a CLI. `core.cli.run()` trata o atalho
@@ -363,6 +382,12 @@ host. O painel ganha uma linha (`App.wall_info`) com J/L e o gap.
   mudança de estética for intencional.
 - `modes/scanner.py` (`ScannerMode`) não está registrado em `MODE_CLASSES` —
   código pré-existente, preservado mas inerte (ver comentário no arquivo).
+- Wall: só na mesma máquina (socket Unix; TCP/rede ficou fora da v1); as
+  larguras das linhas da grade devem ser parecidas, porque a diferença fica
+  sem imagem; a moldura entre janelas só é compensada pelo gap, ajustado à
+  mão; o programa não sabe onde as janelas estão na tela, então a posição vem
+  de `--at` ou do modo de layout; na sucessão do host a simulação recomeça e
+  as posições movidas pelo modo de layout não migram.
 
 ## Agent skills
 
