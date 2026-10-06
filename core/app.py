@@ -35,6 +35,10 @@ class App:
         self.screensaver = screensaver
         self.rainbow = rainbow
         self.frame_count = 0
+        # Set by the J key: join the video wall (when standalone) or leave it
+        # (when hosting) — run()/the host loop stop and the session decides.
+        self.wall_toggle_requested = False
+        self.wall_info = None       # set by the wall host: an extra panel row about the wall
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
         # core.cli's argparse choices already guarantee a valid mode for
@@ -151,17 +155,16 @@ class App:
         """Return a compact ten-step meter for the control panel."""
         return '[' + ('#' * value) + ('.' * (10 - value)) + ']'
 
-    def _draw_text(self, y: int, x: int, text: str, reverse: bool = False, bold: bool = False):
-        """Write a row of panel text — always neutral white, since the
-        panel was never theme-colored (it used curses' default terminal
-        foreground plus A_REVERSE/A_BOLD before this ticket)."""
+    def draw_text(self, y: int, x: int, text: str, reverse: bool = False, bold: bool = False):
+        """Write a row of text in neutral white (panel text and overlay
+        badges are never theme-colored), optionally reversed or bold."""
         for offset, char in enumerate(text):
             self.add_char(y, x + offset, char, ((255, 255, 255), bold, reverse))
 
     def _draw_control_panel(self):
         """Draw a compact btop-inspired live-control overlay."""
         panel_width = 43
-        panel_height = 11
+        panel_height = 12 if self.wall_info else 11
         if not self.panel_visible or self.height < panel_height + 1 or self.width < panel_width + 1:
             return
 
@@ -175,12 +178,14 @@ class App:
         network_tempo = self.modes['network'].tempo
         pulse_thickness = self.modes['pulse'].thickness
 
+        # Inside the wall, J/L/gap live on their own panel row (wall_info).
+        wall_hint = '' if self.wall_info else '  J wall'
         if self.active_mode == 'network':
-            context_row = ',/. net:{0:.1f}x  M/T/R/P controls'.format(network_tempo)
+            context_row = ',/. net:{0:.1f}x{1}  M/T/R/P'.format(network_tempo, wall_hint)
         elif self.active_mode == 'pulse':
-            context_row = ',/. thickness:{0:.1f}x  M/T/R/P controls'.format(pulse_thickness)
+            context_row = ',/. thickness:{0:.1f}x{1}  M/T/R/P'.format(pulse_thickness, wall_hint)
         else:
-            context_row = 'M mode  T theme  R rainbow  P hide'
+            context_row = 'M mode  T theme  R rainbow{0}'.format(wall_hint)
 
         rows = [
             '+' + ('-' * (panel_width - 2)) + '+',
@@ -193,12 +198,14 @@ class App:
             panel_row('W/S or Up/Down : speed'),
             panel_row('A/D or Left/Right : density'),
             panel_row(context_row),
-            '+' + ('-' * (panel_width - 2)) + '+',
         ]
+        if self.wall_info:
+            rows.append(panel_row(self.wall_info))
+        rows.append('+' + ('-' * (panel_width - 2)) + '+')
 
         for offset, row in enumerate(rows):
-            reverse = offset in (0, 1, 5, 10)
-            self._draw_text(y + offset, x, row, reverse=reverse, bold=not reverse)
+            reverse = offset in (0, 1, 5, len(rows) - 1)
+            self.draw_text(y + offset, x, row, reverse=reverse, bold=not reverse)
 
     def change_speed(self, amount: int):
         """Change speed live and keep every stream's relative variation."""
@@ -268,7 +275,8 @@ class App:
                 self.modes['network'].reset(self)
 
     def check_input(self) -> bool:
-        """Check for user input. Returns True if should exit."""
+        """Check for user input. Returns True if the loop should stop: to
+        quit, or — J, ``wall_toggle_requested`` — to join/leave the wall."""
         try:
             key = self.stdscr.getch()
             if key != -1:  # A key was pressed
@@ -284,6 +292,9 @@ class App:
                     self.change_density(1)
                 elif key in (curses.KEY_LEFT, ord('['), ord('a'), ord('A')):
                     self.change_density(-1)
+                elif key == ord('j') or key == ord('J'):
+                    self.wall_toggle_requested = True
+                    return True
                 elif key == ord('t') or key == ord('T'):
                     self.cycle_theme()
                 elif key == ord('m') or key == ord('M'):
@@ -310,6 +321,15 @@ class App:
             pass
         return False
 
+    def render_frame(self):
+        """Build one frame in ``self.screen`` — clear, advance and draw the
+        active visualizer, overlay the panel — without writing it anywhere.
+        ``run`` flushes it to the terminal; the video wall host slices it
+        per tile instead."""
+        self.screen.clear()
+        self.modes[self.active_mode].render(self)
+        self._draw_control_panel()
+
     def run(self):
         """Main animation loop."""
         # Calculate frame delay based on speed
@@ -327,13 +347,7 @@ class App:
                 # Handle terminal resize
                 self.handle_resize()
 
-                # Start a new frame
-                self.screen.clear()
-
-                # Update and draw the active visualizer.
-                self.modes[self.active_mode].render(self)
-
-                self._draw_control_panel()
+                self.render_frame()
 
                 # Push the frame to the terminal
                 self.screen.flush(self.truecolor)

@@ -1,0 +1,383 @@
+"""Unit tests for core.wall — the video wall's pure logic (layout, frame
+codec). No sockets, no curses.
+
+Run: python3 -m unittest discover -s tests -t .
+"""
+
+import inspect
+import os
+import sys
+import unittest
+from types import SimpleNamespace
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core import wall  # noqa: E402
+from core.app import App  # noqa: E402
+
+
+class LayoutTests(unittest.TestCase):
+    def test_tiles_sit_side_by_side_in_arrival_order(self):
+        placements, height, width = wall.layout([(80, 24), (40, 30), (60, 10)])
+
+        self.assertEqual(placements, [(0, 0), (80, 0), (120, 0)])
+        self.assertEqual((height, width), (30, 180))
+
+    def test_a_single_tile_is_its_own_canvas(self):
+        self.assertEqual(wall.layout([(80, 24)]), ([(0, 0)], 24, 80))
+
+    def test_no_tiles_gives_a_one_cell_canvas(self):
+        self.assertEqual(wall.layout([]), ([], 1, 1))
+
+
+class GridLayoutTests(unittest.TestCase):
+    def test_rows_stack_top_to_bottom_and_tiles_go_left_to_right_by_column(self):
+        sizes = [(120, 20), (60, 20), (60, 24)]
+        positions = [(0, 0), (1, 0), (1, 1)]
+
+        placements, height, width = wall.layout(sizes, positions)
+
+        self.assertEqual(placements, [(0, 0), (0, 20), (60, 20)])
+        self.assertEqual((height, width), (44, 120))
+
+    def test_column_order_beats_arrival_order_inside_a_row(self):
+        placements, _, _ = wall.layout([(50, 10), (30, 10)], [(0, 1), (0, 0)])
+
+        self.assertEqual(placements, [(30, 0), (0, 0)])
+
+    def test_a_row_is_as_tall_as_its_tallest_tile_and_tiles_align_to_the_top(self):
+        sizes = [(40, 10), (40, 25), (80, 5)]
+        positions = [(0, 0), (0, 1), (1, 0)]
+
+        placements, height, width = wall.layout(sizes, positions)
+
+        self.assertEqual(placements, [(0, 0), (40, 0), (0, 25)])
+        self.assertEqual((height, width), (30, 80))
+
+    def test_canvas_is_as_wide_as_the_widest_row(self):
+        _, _, width = wall.layout([(100, 10), (30, 10), (30, 10)], [(0, 0), (1, 0), (1, 1)])
+
+        self.assertEqual(width, 100)
+
+    def test_rows_need_not_be_consecutive(self):
+        placements, height, _ = wall.layout([(10, 4), (10, 6)], [(5, 0), (2, 0)])
+
+        self.assertEqual(placements, [(0, 6), (0, 0)])
+        self.assertEqual(height, 10)
+
+    def test_tiles_without_a_position_queue_up_in_row_zero_in_arrival_order(self):
+        placements, _, _ = wall.layout([(10, 5), (20, 5), (30, 5)], [None, None, None])
+
+        self.assertEqual(placements, [(0, 0), (10, 0), (30, 0)])
+
+    def test_resolved_positions_fill_in_the_arrival_queue(self):
+        self.assertEqual(wall.resolve_positions([None, (3, 2), None]), [(0, 0), (3, 2), (0, 1)])
+
+    def test_the_queue_skips_cells_other_tiles_declared(self):
+        self.assertEqual(wall.resolve_positions([None, (0, 0), None, (0, 2), None]),
+                         [(0, 1), (0, 0), (0, 3), (0, 2), (0, 4)])
+
+    def test_resolved_positions_never_repeat(self):
+        resolved = wall.resolve_positions([None, (0, 0), None, (0, 1), None, (0, 2)])
+
+        self.assertEqual(len(set(resolved)), len(resolved))
+
+    def test_two_tiles_on_the_same_position_keep_arrival_order(self):
+        placements, _, _ = wall.layout([(10, 5), (20, 5)], [(0, 0), (0, 0)])
+
+        self.assertEqual(placements, [(0, 0), (10, 0)])
+
+
+class GapLayoutTests(unittest.TestCase):
+    def test_a_horizontal_gap_hides_columns_between_neighbors_in_a_row(self):
+        placements, height, width = wall.layout([(60, 20), (60, 20), (40, 20)], gap=(3, 0))
+
+        self.assertEqual(placements, [(0, 0), (63, 0), (126, 0)])
+        self.assertEqual((height, width), (20, 166))
+
+    def test_a_vertical_gap_hides_rows_between_neighbors_in_a_column(self):
+        placements, height, width = wall.layout(
+            [(80, 10), (80, 12), (80, 8)], [(0, 0), (1, 0), (2, 0)], gap=(0, 2))
+
+        self.assertEqual(placements, [(0, 0), (0, 12), (0, 26)])
+        self.assertEqual((height, width), (34, 80))
+
+    def test_there_is_no_gap_before_the_first_tile_or_after_the_last(self):
+        self.assertEqual(wall.layout([(80, 24)], gap=(5, 5)), ([(0, 0)], 24, 80))
+
+    def test_a_gap_is_counted_once_per_seam_between_rows_that_exist(self):
+        placements, height, _ = wall.layout([(10, 4), (10, 6)], [(0, 0), (5, 0)], gap=(0, 3))
+
+        self.assertEqual(placements, [(0, 0), (0, 7)])
+        self.assertEqual(height, 13)
+
+    def test_both_gaps_apply_on_a_grid(self):
+        sizes = [(120, 20), (60, 20), (60, 24)]
+        positions = [(0, 0), (1, 0), (1, 1)]
+
+        placements, height, width = wall.layout(sizes, positions, gap=(4, 1))
+
+        self.assertEqual(placements, [(0, 0), (0, 21), (64, 21)])
+        self.assertEqual((height, width), (45, 124))
+
+    def test_a_zero_gap_changes_nothing(self):
+        sizes = [(60, 20), (40, 30)]
+
+        self.assertEqual(wall.layout(sizes, gap=(0, 0)), wall.layout(sizes))
+
+
+class AdjustGapTests(unittest.TestCase):
+    def test_each_axis_moves_independently_by_the_delta(self):
+        self.assertEqual(wall.adjust_gap((2, 3), 'h', 1), (3, 3))
+        self.assertEqual(wall.adjust_gap((2, 3), 'v', -1), (2, 2))
+
+    def test_the_gap_never_goes_below_zero_or_above_the_maximum(self):
+        self.assertEqual(wall.adjust_gap((0, 0), 'h', -1), (0, 0))
+        self.assertEqual(wall.adjust_gap((0, 0), 'v', -1), (0, 0))
+        self.assertEqual(wall.adjust_gap((wall.MAX_GAP, 0), 'h', 1), (wall.MAX_GAP, 0))
+
+
+class MovePositionTests(unittest.TestCase):
+    def test_a_tile_moves_one_cell_in_the_given_direction(self):
+        positions = [(1, 1), (5, 5)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'up'), [(0, 1), (5, 5)])
+        self.assertEqual(wall.move_position(positions, 0, 'down'), [(2, 1), (5, 5)])
+        self.assertEqual(wall.move_position(positions, 0, 'left'), [(1, 0), (5, 5)])
+        self.assertEqual(wall.move_position(positions, 0, 'right'), [(1, 2), (5, 5)])
+
+    def test_moving_onto_an_occupied_position_swaps_the_two_tiles(self):
+        positions = [(0, 0), (0, 1), (1, 0)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'right'), [(0, 1), (0, 0), (1, 0)])
+        self.assertEqual(wall.move_position(positions, 0, 'down'), [(1, 0), (0, 1), (0, 0)])
+
+    def test_there_is_no_going_past_the_top_left_edge(self):
+        positions = [(0, 0), (3, 3)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'up'), positions)
+        self.assertEqual(wall.move_position(positions, 0, 'left'), positions)
+
+    def test_there_is_no_going_past_the_grid_limit(self):
+        edge = wall.MAX_GRID_INDEX
+        positions = [(edge, edge)]
+
+        self.assertEqual(wall.move_position(positions, 0, 'down'), positions)
+        self.assertEqual(wall.move_position(positions, 0, 'right'), positions)
+
+    def test_moving_never_mutates_its_input(self):
+        positions = [(0, 0), (0, 1)]
+
+        wall.move_position(positions, 0, 'right')
+
+        self.assertEqual(positions, [(0, 0), (0, 1)])
+
+    def test_no_two_tiles_ever_share_a_position_after_a_move(self):
+        positions = [(0, 0), (0, 1), (0, 2), (1, 1)]
+        for index in range(len(positions)):
+            for direction in ('up', 'down', 'left', 'right'):
+                moved = wall.move_position(positions, index, direction)
+                self.assertEqual(len(set(moved)), len(moved))
+
+
+class DisplaceTests(unittest.TestCase):
+    def test_a_free_position_displaces_nobody(self):
+        self.assertIsNone(wall.displace([(0, 0), (0, 1)], (1, 0)))
+
+    def test_an_occupant_is_pushed_to_the_next_free_column_in_its_row(self):
+        self.assertEqual(wall.displace([(0, 0), (0, 1)], (0, 0)), (0, (0, 2)))
+
+    def test_the_search_skips_occupied_columns(self):
+        self.assertEqual(wall.displace([(2, 3), (2, 4), (2, 5)], (2, 3)), (0, (2, 6)))
+
+    def test_at_the_end_of_the_grid_the_occupant_wraps_to_the_first_free_column(self):
+        edge = wall.MAX_GRID_INDEX
+
+        self.assertEqual(wall.displace([(0, edge), (0, 0)], (0, edge)), (0, (0, 1)))
+
+    def test_only_the_tile_on_that_position_is_displaced(self):
+        self.assertEqual(wall.displace([(0, 0), (1, 0), (1, 1)], (1, 0)), (1, (1, 2)))
+
+
+class ParseAtTests(unittest.TestCase):
+    def test_parses_row_and_column(self):
+        self.assertEqual(wall.parse_at('1,2'), (1, 2))
+        self.assertEqual(wall.parse_at(' 0 , 0 '), (0, 0))
+
+    def test_the_grid_limit_is_inclusive(self):
+        self.assertEqual(wall.parse_at('999,0'), (999, 0))
+        with self.assertRaises(ValueError):
+            wall.parse_at('1000,0')
+
+    def test_rejects_malformed_or_negative_positions(self):
+        for bad in ('', '1', '1,2,3', 'a,b', '-1,0', '0,-1', '1.5,0', '0,1000000'):
+            with self.assertRaises(ValueError):
+                wall.parse_at(bad)
+
+
+class SnapshotTests(unittest.TestCase):
+    def app_like(self, **overrides):
+        state = dict(color_name='cyan', active_mode='pulse', base_speed=0.7, density=3, rainbow=False)
+        state.update(overrides)
+        return SimpleNamespace(**state)
+
+    def test_snapshot_reads_the_shared_settings_off_the_app(self):
+        self.assertEqual(wall.snapshot_of(self.app_like(), (2, 1)), {
+            'color': 'cyan', 'mode': 'pulse', 'speed': 7, 'density': 3, 'rainbow': False, 'gap': (2, 1)})
+
+    def test_the_gap_defaults_to_zero(self):
+        self.assertEqual(wall.snapshot_of(self.app_like())['gap'], (0, 0))
+
+    def test_app_settings_are_exactly_what_the_app_constructor_accepts(self):
+        # So a terminal leaving the wall can simply build App(stdscr, **settings).
+        accepted = inspect.signature(App.__init__).parameters
+        settings = wall.app_settings(wall.snapshot_of(self.app_like(), (2, 1)))
+
+        self.assertEqual(sorted(settings), sorted(wall.SNAPSHOT_KEYS))
+        self.assertNotIn('gap', settings)
+        for key in settings:
+            self.assertIn(key, accepted)
+
+    def test_every_speed_step_survives_the_float_roundtrip(self):
+        for speed in range(1, 11):
+            snapshot = wall.snapshot_of(self.app_like(base_speed=speed / 10.0))
+            self.assertEqual(snapshot['speed'], speed)
+
+    def test_config_message_roundtrips_the_snapshot(self):
+        snapshot = wall.snapshot_of(self.app_like(rainbow=True), (3, 2))
+        decoder = wall.LineDecoder()
+
+        (message,) = decoder.feed(wall.encode(wall.config_message(snapshot)))
+
+        self.assertEqual(wall.config_snapshot(message), snapshot)
+
+    def test_decoder_rejects_invalid_configs(self):
+        good = wall.snapshot_of(self.app_like(), (1, 1))
+        bad_variants = [
+            dict(good, gap=(-1, 0)), dict(good, gap=(0, wall.MAX_GAP + 1)), dict(good, gap=(1,)),
+            dict(good, gap='ab'), dict(good, gap=(1.5, 1)), {k: v for k, v in good.items() if k != 'gap'},
+            dict(good, speed=0), dict(good, speed=11), dict(good, density=0), dict(good, density=11),
+            dict(good, speed='5'), dict(good, color='chartreuse'), dict(good, mode='scanner'),
+            dict(good, rainbow='yes'), dict(good, color=['green']), dict(good, mode={'a': 1}), {k: v for k, v in good.items() if k != 'mode'},
+        ]
+        raw = b''.join(wall.encode(wall.config_message(v)) for v in bad_variants)
+
+        self.assertEqual(wall.LineDecoder().feed(raw), [])
+
+
+class PromotionTests(unittest.TestCase):
+    def test_the_oldest_client_does_not_wait(self):
+        self.assertEqual(wall.promotion_delay(0), 0)
+
+    def test_each_rank_waits_a_fifth_of_a_second_behind_the_one_before(self):
+        self.assertAlmostEqual(wall.promotion_delay(1), 0.2)
+        self.assertAlmostEqual(wall.promotion_delay(3), 0.6)
+
+    def test_older_clients_get_their_turn_before_younger_ones(self):
+        delays = [wall.promotion_delay(rank) for rank in range(wall.PROMOTION_MAX_RANK + 1)]
+
+        self.assertEqual(delays, sorted(delays))
+        self.assertEqual(len(set(delays)), len(delays))
+
+    def test_the_wait_is_bounded_however_young_the_client(self):
+        self.assertEqual(wall.promotion_delay(10 ** 6), wall.promotion_delay(wall.PROMOTION_MAX_RANK))
+        self.assertAlmostEqual(wall.promotion_delay(10 ** 6), 2.0)  # 10 ranks x 0.2s
+
+    def test_a_missing_rank_counts_as_the_oldest(self):
+        self.assertEqual(wall.promotion_delay(None), 0)
+
+    def test_rank_message_roundtrips(self):
+        (message,) = wall.LineDecoder().feed(wall.encode(wall.rank_message(2)))
+
+        self.assertEqual(message, {'t': 'rank', 'n': 2})
+
+    def test_decoder_rejects_invalid_ranks(self):
+        raw = (wall.encode({'t': 'rank', 'n': -1}) + wall.encode({'t': 'rank', 'n': 'x'})
+               + wall.encode({'t': 'rank', 'n': wall.MAX_RANK + 1}) + wall.encode({'t': 'rank'}))
+
+        self.assertEqual(wall.LineDecoder().feed(raw), [])
+
+
+class CodecTests(unittest.TestCase):
+    def roundtrip(self, message):
+        decoder = wall.LineDecoder()
+        decoded = decoder.feed(wall.encode(message))
+        self.assertEqual(len(decoded), 1)
+        return decoded[0]
+
+    def test_size_and_key_messages_roundtrip(self):
+        self.assertEqual(self.roundtrip(wall.size_message(90, 30)), {'t': 'size', 'w': 90, 'h': 30})
+        self.assertEqual(self.roundtrip(wall.key_message(113)), {'t': 'key', 'k': 113})
+
+    def test_size_message_can_carry_a_declared_position(self):
+        self.assertEqual(self.roundtrip(wall.size_message(90, 30, (1, 2))),
+                         {'t': 'size', 'w': 90, 'h': 30, 'at': [1, 2]})
+
+    def test_decoder_rejects_a_malformed_position(self):
+        raw = (b'{"t":"size","w":9,"h":9,"at":[1]}\n' + b'{"t":"size","w":9,"h":9,"at":[-1,0]}\n'
+               + b'{"t":"size","w":9,"h":9,"at":"x"}\n')
+
+        self.assertEqual(wall.LineDecoder().feed(raw), [])
+
+    def test_frame_roundtrips_with_katakana_and_tuples(self):
+        cells = [(0, 1, '\uff71', (0, 255, 70), True, False), (2, 3, '\u30a2', (1, 2, 3), False, True)]
+        bgs = [(4, 5, (9, 8, 7))]
+
+        message = self.roundtrip(wall.frame_message(cells, bgs))
+
+        self.assertEqual(wall.frame_cells(message), (cells, bgs))
+
+    def test_each_message_is_one_line(self):
+        raw = wall.encode(wall.frame_message([(0, 0, 'a\nb', (1, 1, 1), False, False)], []))
+
+        self.assertEqual(raw.count(b'\n'), 1)
+        self.assertTrue(raw.endswith(b'\n'))
+
+    def test_decoder_waits_for_a_complete_line(self):
+        raw = wall.encode(wall.frame_message([(0, 0, '\u30a2', (1, 1, 1), False, False)], []))
+        decoder = wall.LineDecoder()
+
+        # Split mid-way, inside the 3-byte katakana.
+        cut = raw.index('\u30a2'.encode('utf-8')) + 1
+        self.assertEqual(decoder.feed(raw[:cut]), [])
+        self.assertEqual(len(decoder.feed(raw[cut:])), 1)
+
+    def test_decoder_returns_several_messages_from_one_chunk(self):
+        raw = wall.encode(wall.key_message(1)) + wall.encode(wall.key_message(2))
+
+        decoded = wall.LineDecoder().feed(raw)
+
+        self.assertEqual([m['k'] for m in decoded], [1, 2])
+
+    def test_decoder_skips_invalid_lines_and_keeps_going(self):
+        raw = (b'not json\n' + b'{"t":"mystery"}\n' + b'[1,2]\n' + b'{"t":"size","w":"x","h":1}\n'
+               + wall.encode(wall.key_message(7)))
+
+        decoded = wall.LineDecoder().feed(raw)
+
+        self.assertEqual(decoded, [{'t': 'key', 'k': 7}])
+
+    def test_decoder_rejects_absurd_tile_sizes(self):
+        raw = (wall.encode(wall.size_message(10 ** 9, 10)) + wall.encode(wall.size_message(10, -1))
+               + wall.encode(wall.size_message(90, 30)))
+
+        decoded = wall.LineDecoder().feed(raw)
+
+        self.assertEqual(decoded, [{'t': 'size', 'w': 90, 'h': 30}])
+
+    def test_decoder_drops_a_runaway_line_instead_of_growing_forever(self):
+        decoder = wall.LineDecoder()
+
+        self.assertEqual(decoder.feed(b'x' * (wall.MAX_LINE_BYTES + 1)), [])
+
+        # The garbage is gone: the next real message still comes through.
+        self.assertEqual(decoder.feed(b'\n' + wall.encode(wall.key_message(5))), [{'t': 'key', 'k': 5}])
+
+    def test_frame_cells_raises_on_malformed_cells(self):
+        for bad in ([[1, 2]], [[0, 0, 'a', 5, False, False]], 'nope'):
+            with self.assertRaises((ValueError, TypeError)):
+                wall.frame_cells({'t': 'frame', 'cells': bad, 'bgs': []})
+
+
+if __name__ == '__main__':
+    unittest.main()

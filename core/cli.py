@@ -5,8 +5,19 @@ import sys
 
 from modes import MODE_ORDER
 
-from .app import App
 from .palette import COLOR_PALETTE
+from .wall import parse_at
+
+
+def _at(text):
+    """argparse type for --at."""
+    import argparse
+
+    try:
+        return parse_at(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "expected ROW,COL as non-negative integers (e.g. 0,1), got '{0}'".format(text))
 
 
 def parse_args(argv=None):
@@ -24,6 +35,8 @@ Examples:
   matrix-rain -m network          # Start straight in Network mode
   matrix-rain --rainbow           # Rainbow mode!
   matrix-rain -S                  # Screensaver mode (exit on keypress)
+  matrix-rain --wall              # Video wall: run it in 2+ terminals to join them
+  matrix-rain --at 1,0            # Wall tile on row 1, column 0 (implies --wall)
   matrix-rain -c green -s 6 -d 9  # Fast, very dense green rain
 
 Colors available: green, red, blue, cyan, magenta, yellow, white, orange, pink, ice, violet
@@ -81,24 +94,35 @@ cycle modes and 'h' for the full live-control panel once it's running.
         help='Rainbow mode - cycling colors'
     )
 
-    return parser.parse_args(argv)
+    parser.add_argument(
+        '--wall',
+        action='store_true',
+        help='Video wall - join (or start) a wall shared with other terminals '
+             'on this machine, so they act as tiles of one big screen'
+    )
+
+    parser.add_argument(
+        '--at',
+        type=_at,
+        metavar='ROW,COL',
+        help='Where this terminal sits on the video wall grid (row 0 is the '
+             'top, column 0 the left); implies --wall. Without it, terminals '
+             'queue up left to right in the order they join'
+    )
+
+    args = parser.parse_args(argv)
+    if args.at is not None:
+        args.wall = True
+    if args.wall and args.screensaver:
+        parser.error('--wall cannot be combined with -S/--screensaver')
+    return args
 
 
 def _main(stdscr, argv):
     """Entry point wrapped by curses."""
-    args = parse_args(argv)
+    from .wall_io import run_session
 
-    # Create and run the app
-    app = App(
-        stdscr,
-        color=args.color,
-        mode=args.mode,
-        speed=args.speed,
-        density=args.density,
-        screensaver=args.screensaver,
-        rainbow=args.rainbow,
-    )
-    app.run()
+    return run_session(stdscr, parse_args(argv))
 
 
 def run(argv=None):
@@ -119,7 +143,9 @@ def run(argv=None):
 
     # Wrap main in curses wrapper for proper terminal handling
     try:
-        curses.wrapper(_main, argv)
+        message = curses.wrapper(_main, argv)
+        if message:
+            print('wall: ' + message)
     except KeyboardInterrupt:
         pass
     except curses.error as e:

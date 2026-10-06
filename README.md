@@ -104,10 +104,73 @@ matrix-rain -m network --rainbow -s 7 -d 8  # Fast dense rainbow network
 | `-d` | `--density` | Rain density (1-10) | `7` |
 | `-S` | `--screensaver` | Exit on any keypress | `off` |
 | `-r` | `--rainbow` | Rainbow color cycling mode | `off` |
+| | `--at` | `ROW,COL` — where this terminal sits on the wall's grid; implies `--wall` | queue by arrival |
+| | `--wall` | Join (or start) a video wall with other terminals — see [Video wall](#video-wall) | `off` |
 | `-h` | `--help` | Show help message | - |
 
 Rainbow mode is its own flag (`-r`/`--rainbow`), not a `--color` value — it
 cycles through every theme below rather than picking one.
+
+## Video wall
+
+Run `matrix-rain --wall` in two or more terminals on the same machine and they
+become tiles of one big screen: the animation runs once, across all of them.
+The first terminal becomes the host; the others join it, side by side in the
+order they open. Theme, mode, rainbow, speed and density are shared — change them in
+any tile and every tile follows.
+
+```bash
+matrix-rain --wall -c cyan    # first terminal: starts the wall
+matrix-rain --wall            # second, third...: join it
+```
+
+If your terminals aren't in a single row, say where each one sits with
+`--at ROW,COL` (row 0 is the top, column 0 the left). For one terminal on top
+and two below:
+
+```bash
+matrix-rain --at 0,0 -c cyan    # top (starts the wall)
+matrix-rain --at 1,0            # bottom left
+matrix-rain --at 1,1            # bottom right
+```
+
+Rows stack top to bottom and tiles in a row go left to right by column. Tiles
+of different sizes line up along the top of their row, and a row as wide as
+its widest tile — keep the rows about the same total width, since any
+difference is simply blank. While the control panel is visible (`p` toggles
+it), each tile shows its own `WALL rXcY` badge in the corner. Terminals that
+don't pass `--at` queue up in row 0 in the order they join.
+
+Reorganizing doesn't need a restart: press `L` in a tile to enter layout mode,
+and its arrow keys move that tile around the grid (moving onto another tile
+swaps the two); press `L` again to leave the mode. While it's on, every tile
+gets seam guides and the badge shows `LAYOUT rXcY`. Outside layout mode the
+arrows adjust speed and density as usual. If a terminal joins with an `--at`
+already taken, it gets that spot and the tile that was there steps aside to the
+next free column of its row.
+
+Real windows have frames, and the picture breaks at the seam. In the wall, the
+gap keys hide a few columns or rows of the canvas at each seam, so the image
+reads as continuous behind the frame: `>` / `<` widen / narrow the horizontal
+gap (in columns), `}` / `{` the vertical one (in rows). It starts at 0 and the
+right value depends on your terminal and font, so adjust it by eye while
+watching a seam. The panel shows the current values, and the setting lasts for
+the session only.
+
+You don't have to start in the wall: press `J` in any running terminal to join
+(or start) it, and `J` again to leave. Joining adopts the wall's theme, mode,
+speed and density; leaving keeps whatever the wall had at that moment, with the
+animation starting over. Closing the first terminal doesn't end the wall:
+when the host goes away (`q`, `Ctrl+C`, a crash, or leaving with `J`), the
+oldest remaining tile takes over as host with the wall's last settings
+(theme, mode, speed, density and gap) and the others reconnect to it. The
+animation starts over, but the picture carries on. Tile positions you moved
+with layout mode aren't carried over — tiles go back to the `--at` they
+declared.
+
+`q` or `Esc` quits that terminal, whether it's the host or not.
+`--wall` can't be combined with `-S`. The wall is local to your user on this
+machine (a private Unix socket); it doesn't connect across machines.
 
 ### Available Colors
 
@@ -146,6 +209,9 @@ Outside screensaver mode, adjust the animation without restarting it:
 | `A` / `←` / `[` | Decrease density (fewer streams) |
 | `t` | Cycle through color themes |
 | `r` | Toggle rainbow mode |
+| `j` | Join / leave the video wall |
+| `l` | Layout mode (in the wall): arrows move this tile |
+| `<` `>` / `{` `}` | Wall seam gap: narrower / wider, horizontal / vertical |
 | `m` | Cycle visualizers: Rain, Pulse, Network |
 | `,` / `.` | Decrease/increase Network-only tempo (Network mode) |
 | `p` | Hide/show the live-control panel |
