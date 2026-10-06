@@ -256,13 +256,16 @@ não viram dois hosts. Os modos não sabem do wall: só veem
 `app.width`/`app.height`. `J` alterna a participação: em standalone, entra
 no wall (vira host se não houver um; senão vira cliente e a configuração
 do wall vence); dentro, sai e o terminal reconstrói o `App` com o último
-snapshot de configuração (`wall.snapshot_of`), com a simulação
-recomeçando. O host manda a configuração aos clientes (mensagem `config`)
-ao aceitá-los e sempre que ela muda. Se o host sai (`q`, `Ctrl+C`, queda
-ou `J`), há **sucessão**: o host manda a cada cliente o seu posto
-(mensagem `rank`, 0 = o mais antigo ainda conectado, reenviado quando
-alguém entra ou cai); ao perder o host, o cliente fica em `run_session`
-(resultado `gone`) e, em `run_wall(rank=...)`, procura um novo host por
+snapshot de configuração (`wall.snapshot_of`: cor, modo, velocidade,
+densidade e arco-íris — as chaves de `wall.SNAPSHOT_KEYS`, que são
+argumentos do construtor do `App` — mais o `gap`, que `wall.app_settings`
+filtra), com a simulação recomeçando. O host manda a configuração aos
+clientes (mensagem `config`) ao aceitá-los e sempre que ela muda. Se o
+host sai (`q`, `Ctrl+C`, queda ou `J`), há **sucessão**: o host manda a
+cada cliente o seu posto (mensagem `rank`, 0 = o mais antigo ainda
+conectado, reenviado quando alguém entra ou cai); ao perder o host, o
+cliente fica em `run_session` (resultado `gone`) e, em
+`run_wall(rank=...)`, procura um novo host por
 `wall.promotion_delay(rank)` antes de tentar virar um — o `flock` garante
 um vencedor só, e os demais reconectam. O novo host usa o último snapshot
 (incluindo o gap) e a simulação recomeça; as posições movidas pelo modo de

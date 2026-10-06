@@ -423,8 +423,10 @@ def run_wall(stdscr, kwargs, at=None, transport=None, gap=(0, 0), rank=None):
     """
     transport = transport or UnixTransport()
     if rank is not None:
-        deadline = time.time() + wall.promotion_delay(rank)
-        while time.time() < deadline:
+        # Nothing is redrawn or read while waiting (at most a couple of
+        # seconds): the last frame stays up and keys queue until we're in.
+        deadline = time.monotonic() + wall.promotion_delay(rank)
+        while time.monotonic() < deadline:
             conn = transport.connect()
             if conn:
                 return run_client(stdscr, conn, at)

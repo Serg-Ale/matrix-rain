@@ -17,6 +17,7 @@ MAX_GRID_INDEX = 999        # row/col of a tile on the wall's grid
 MAX_GAP = 40                # columns/rows hidden at a seam, at most
 PROMOTION_STEP = 0.2        # seconds each rank waits behind the one before it
 PROMOTION_MAX_RANK = 10     # beyond this everyone waits the same, so the wait stays short
+MAX_RANK = 10000            # sanity bound on a client's rank in a message
 
 
 def parse_at(text):
@@ -264,7 +265,7 @@ def _valid(message):
     if kind == 'key':
         return _is_int(message.get('k'))
     if kind == 'rank':
-        return _is_int(message.get('n')) and 0 <= message['n'] <= MAX_TILE_SIZE
+        return _is_int(message.get('n')) and 0 <= message['n'] <= MAX_RANK
     if kind == 'config':
         return (isinstance(message.get('color'), str) and message['color'] in COLOR_PALETTE
                 and isinstance(message.get('mode'), str) and message['mode'] in MODE_ORDER
