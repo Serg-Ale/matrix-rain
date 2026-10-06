@@ -1,30 +1,32 @@
 """Pulse mode — bright rings expanding through darkness with a trailing fade.
 
-A background "gradient wash" — a radial color fill whose intensity
-breathes with the same pulse phase driving the rings — gives the mode a
-sense of fundo->frente depth without adding any extra characters.
-Validated in the issue #1 background-depth prototype (variant C,
-"Gradient wash").
+The space between rings is left at the terminal's plain black — no
+background wash — so the theme color only ever comes from the rings
+themselves, never from a fill behind them. An earlier "gradient wash"
+background fill (issue #1 prototype, variant C) tinted that space with
+theme color; even pushed toward the dark end of the gradient it still
+read as the theme washing the whole screen, especially on true-color
+terminals, so it was dropped in favor of true black.
 """
 
 import math
 
-from core import color as color_engine
 from core.charset import MATRIX_CHARS
 
 from .base import Mode
 
-_WASH_DIM_FACTOR = 0.5
-
 
 def _radial_distance(x, y, center_x, center_y):
     """Distance from (x, y) to the pulse center, compensated for terminal
-    cells being roughly twice as tall as they are wide (so rings/wash read
-    as circular instead of oval). Shared by the wash fill and the ring
-    math below — same ellipse, two different uses of the distance."""
+    cells being roughly twice as tall as they are wide (so rings read as
+    circular instead of oval)."""
     dx = (x - center_x) / 2.0
     dy = y - center_y
     return math.sqrt(dx * dx + dy * dy)
+
+
+_MIN_THICKNESS = 0.2
+_MAX_THICKNESS = 3.0
 
 
 class PulseMode(Mode):
@@ -32,22 +34,22 @@ class PulseMode(Mode):
 
     def __init__(self):
         self.phase = 0.0
+        self.thickness = 1.0
 
     def reset(self, app):
         self.phase = 0.0
 
-    def _draw_wash(self, app, center_x, center_y, max_radius):
-        """Radial gradient fill, pushed toward the theme's darker end and
-        dimmed further so it reads as background. `breath` ties its
-        intensity to the same phase driving the rings, rather than to
-        raw frame count, per the prototype's brief."""
-        breath = self.phase / max_radius
-        for y in range(app.height):
-            for x in range(app.width):
-                distance = _radial_distance(x, y, center_x, center_y) / max_radius
-                t = min(1.0, max(0.0, 0.55 + distance * 0.4 - breath * 0.15))
-                rgb = app.get_background_rgb(t, x)
-                app.add_background(y, x, color_engine.dim(rgb, _WASH_DIM_FACTOR))
+    def change_thickness(self, amount: float, app):
+        """Scale how far a ring's brightness bands reach — thinner values
+        pull the fade in tight around the ring core, thicker values spread
+        it out. Kept as its own multiplier (not a 1-10 meter) since it
+        only means anything while Pulse is active, same reasoning as
+        Network's tempo."""
+        new_thickness = min(_MAX_THICKNESS, max(_MIN_THICKNESS, round(self.thickness + amount, 1)))
+        if new_thickness == self.thickness:
+            return
+        self.thickness = new_thickness
+        app.show_status('Pulse thickness: {0:.1f}x'.format(new_thickness))
 
     def render(self, app):
         width, height = app.width, app.height
@@ -60,8 +62,6 @@ class PulseMode(Mode):
         ring_count = 2 + (app.density // 2)
 
         self.phase = (self.phase + app.base_speed * 0.75) % max_radius
-
-        self._draw_wash(app, center_x, center_y, max_radius)
 
         # Non-linear spacing: rings bunched near center, wider near edge.
         ring_radii = []
@@ -80,22 +80,26 @@ class PulseMode(Mode):
                     if d < nearest_delta:
                         nearest_delta = d
 
-                # Sharp white core -> fast fade into black.
-                if nearest_delta < 0.25:
+                # Sharp white core -> fast fade into black. Scaling the
+                # delta (rather than the thresholds) keeps the core itself
+                # sharp at any thickness — only how far the fade reaches
+                # changes.
+                scaled_delta = nearest_delta / self.thickness
+                if scaled_delta < 0.25:
                     brightness = 0
-                elif nearest_delta < 0.5:
+                elif scaled_delta < 0.5:
                     brightness = 1
-                elif nearest_delta < 0.9:
+                elif scaled_delta < 0.9:
                     brightness = 2
-                elif nearest_delta < 1.4:
+                elif scaled_delta < 1.4:
                     brightness = 3
-                elif nearest_delta < 2.0:
+                elif scaled_delta < 2.0:
                     brightness = 4
-                elif nearest_delta < 2.8:
+                elif scaled_delta < 2.8:
                     brightness = 5
-                elif nearest_delta < 3.8:
+                elif scaled_delta < 3.8:
                     brightness = 6
-                elif nearest_delta < 5.0:
+                elif scaled_delta < 5.0:
                     brightness = 7
                 else:
                     continue

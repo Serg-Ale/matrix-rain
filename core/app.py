@@ -167,6 +167,14 @@ class App:
             return '| ' + content[:39].ljust(39) + ' |'
 
         network_tempo = self.modes['network'].tempo
+        pulse_thickness = self.modes['pulse'].thickness
+
+        if self.active_mode == 'network':
+            context_row = ',/. net:{0:.1f}x  M/T/R/P controls'.format(network_tempo)
+        elif self.active_mode == 'pulse':
+            context_row = ',/. thickness:{0:.1f}x  M/T/R/P controls'.format(pulse_thickness)
+        else:
+            context_row = 'M mode  T theme  R rainbow  P hide'
 
         rows = [
             '+' + ('-' * (panel_width - 2)) + '+',
@@ -178,7 +186,7 @@ class App:
             panel_row(self.status_message),
             panel_row('W/S or Up/Down : speed'),
             panel_row('A/D or Left/Right : density'),
-            panel_row(',/. net:{0:.1f}x  M/T/R/P controls'.format(network_tempo) if self.active_mode == 'network' else 'M mode  T theme  R rainbow  P hide'),
+            panel_row(context_row),
             '+' + ('-' * (panel_width - 2)) + '+',
         ]
 
@@ -216,6 +224,10 @@ class App:
     def change_network_tempo(self, amount: float):
         """Set a network-only speed multiplier for deliberately slow scenes."""
         self.modes['network'].change_tempo(amount, self)
+
+    def change_pulse_thickness(self, amount: float):
+        """Set a pulse-only ring-thickness multiplier."""
+        self.modes['pulse'].change_thickness(amount, self)
 
     def cycle_theme(self):
         """Cycle normal color themes and leave rainbow mode."""
@@ -273,6 +285,10 @@ class App:
                     self.change_network_tempo(-0.1)
                 elif self.active_mode == 'network' and key == ord('.'):
                     self.change_network_tempo(0.1)
+                elif self.active_mode == 'pulse' and key == ord(','):
+                    self.change_pulse_thickness(-0.1)
+                elif self.active_mode == 'pulse' and key == ord('.'):
+                    self.change_pulse_thickness(0.1)
                 elif key == ord('r') or key == ord('R'):
                     self.rainbow = not self.rainbow
                     message = 'Rainbow enabled' if self.rainbow else 'Theme: {0}'.format(self.color_name)
