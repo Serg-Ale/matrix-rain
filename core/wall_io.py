@@ -28,6 +28,7 @@ SEND_TIMEOUT = 0.25         # a client that can't take a frame for this long is 
 _QUIT_KEYS = (ord('q'), ord('Q'), 27)
 _TOGGLE_KEYS = (ord('j'), ord('J'))
 _LAYOUT_KEYS = (ord('l'), ord('L'))
+_GAP_KEYS = {ord('<'): ('h', -1), ord('>'): ('h', 1), ord('{'): ('v', -1), ord('}'): ('v', 1)}
 _ARROWS = {curses.KEY_UP: 'up', curses.KEY_DOWN: 'down', curses.KEY_LEFT: 'left', curses.KEY_RIGHT: 'right'}
 GUIDE_COLOR = (255, 0, 255)
 
@@ -186,7 +187,7 @@ class _Tile:
 WallResult = namedtuple('WallResult', 'reason snapshot message')
 
 
-def run_host(stdscr, listener, kwargs, at):
+def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
     curses.curs_set(0)
     stdscr.nodelay(True)
     height, width = stdscr.getmaxyx()
@@ -196,9 +197,8 @@ def run_host(stdscr, listener, kwargs, at):
     key_queue = _WallInput()
 
     app = App(key_queue, canvas_size=lambda: canvas, **kwargs)
-    app.wall_active = True
     local_screen = Screen(height, width)
-    config = wall.snapshot_of(app)
+    config = wall.snapshot_of(app, gap)
 
     def drop(tile):
         tile.conn.close()
@@ -212,11 +212,17 @@ def run_host(stdscr, listener, kwargs, at):
 
     def handle_key(tile, key):
         """Keys from any tile. L toggles that tile's layout mode, in which
-        its arrows move it on the grid; everything else reaches the app."""
+        its arrows move it on the grid; ``< > { }`` adjust the seam gap;
+        everything else reaches the app."""
+        nonlocal gap
         if key in _LAYOUT_KEYS:
             tile.layout_mode = not tile.layout_mode
             app.show_status('Layout mode: arrows move this tile, L exits'
                             if tile.layout_mode else 'Layout mode off')
+        elif key in _GAP_KEYS:
+            axis, delta = _GAP_KEYS[key]
+            gap = wall.adjust_gap(gap, axis, delta)
+            app.show_status('Gap: {0} cols x {1} rows'.format(*gap))
         elif tile.layout_mode and key in _ARROWS and tile in sized_tiles():
             sized = sized_tiles()
             moved = wall.move_position(positions_of(sized), sized.index(tile), _ARROWS[key])
@@ -278,7 +284,7 @@ def run_host(stdscr, listener, kwargs, at):
             sized = sized_tiles()
             positions = positions_of(sized)
             placements, canvas_height, canvas_width = wall.layout(
-                [(t.width, t.height) for t in sized], positions)
+                [(t.width, t.height) for t in sized], positions, gap)
             canvas = (canvas_height, canvas_width)
 
             if app.check_input():
@@ -286,13 +292,14 @@ def run_host(stdscr, listener, kwargs, at):
             app.handle_resize()
 
             # Keep every client's idea of the shared settings current.
-            current = wall.snapshot_of(app)
+            current = wall.snapshot_of(app, gap)
             if current != config:
                 config = current
                 for tile in list(tiles):
                     if tile.conn and not tile.conn.send(wall.config_message(config)):
                         drop(tile)
 
+            app.wall_info = 'J leave  L layout  Gap H:{0} V:{1} <>{{}}'.format(*gap)
             app.render_frame()
             editing = any(t.layout_mode for t in sized)
             if editing:
@@ -328,7 +335,7 @@ def run_host(stdscr, listener, kwargs, at):
             if tile.conn:
                 tile.conn.close()
         listener.close()
-    snapshot = wall.snapshot_of(app)
+    snapshot = wall.snapshot_of(app, gap)
     if app.wall_toggle_requested:
         return WallResult('left', snapshot, None)
     return WallResult('quit', snapshot, 'wall closed')
@@ -391,7 +398,7 @@ def run_client(stdscr, conn, at=None):
 
 # --- entry --------------------------------------------------------------------
 
-def run_wall(stdscr, kwargs, at=None, transport=None):
+def run_wall(stdscr, kwargs, at=None, transport=None, gap=(0, 0)):
     """Join the wall if a host is running, otherwise become the host with
     ``kwargs`` (App's constructor settings) as the wall's settings."""
     transport = transport or UnixTransport()
@@ -408,7 +415,7 @@ def run_wall(stdscr, kwargs, at=None, transport=None):
             # still starting up. Give it a moment, then try joining again.
             time.sleep(0.05)
             continue
-        return run_host(stdscr, listener, kwargs, at)
+        return run_host(stdscr, listener, kwargs, at, gap)
     raise RuntimeError('could not join or create the wall')
 
 
@@ -421,19 +428,21 @@ def run_session(stdscr, args, transport=None):
     Returns a message to print on exit, or None.
     """
     settings = {key: getattr(args, key) for key in wall.SNAPSHOT_KEYS}
+    gap = (0, 0)  # the wall's own setting; kept so rejoining as host remembers it
     in_wall = args.wall
     while True:
         if in_wall:
-            result = run_wall(stdscr, settings, args.at, transport)
+            result = run_wall(stdscr, settings, args.at, transport, gap)
             if result.reason == 'quit':
                 return result.message
             if result.snapshot:
-                settings = result.snapshot
+                settings = wall.app_settings(result.snapshot)
+                gap = result.snapshot['gap']
             in_wall = False
         else:
             app = App(stdscr, screensaver=args.screensaver, **settings)
             app.run()
             if not app.wall_toggle_requested:
                 return None
-            settings = wall.snapshot_of(app)
+            settings = wall.app_settings(wall.snapshot_of(app))
             in_wall = True

@@ -38,7 +38,7 @@ class App:
         # Set by the J key: join the video wall (when standalone) or leave it
         # (when hosting) — run()/the host loop stop and the session decides.
         self.wall_toggle_requested = False
-        self.wall_active = False    # set by the wall host: the panel then offers L (layout)
+        self.wall_info = None       # set by the wall host: an extra panel row about the wall
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
         # core.cli's argparse choices already guarantee a valid mode for
@@ -164,7 +164,7 @@ class App:
     def _draw_control_panel(self):
         """Draw a compact btop-inspired live-control overlay."""
         panel_width = 43
-        panel_height = 11
+        panel_height = 12 if self.wall_info else 11
         if not self.panel_visible or self.height < panel_height + 1 or self.width < panel_width + 1:
             return
 
@@ -178,13 +178,14 @@ class App:
         network_tempo = self.modes['network'].tempo
         pulse_thickness = self.modes['pulse'].thickness
 
-        wall_hint = 'J leave  L layout' if self.wall_active else 'J wall'
+        # Inside the wall, J/L/gap live on their own panel row (wall_info).
+        wall_hint = '' if self.wall_info else '  J wall'
         if self.active_mode == 'network':
-            context_row = ',/. net:{0:.1f}x  {1}  M/T/R/P'.format(network_tempo, wall_hint)
+            context_row = ',/. net:{0:.1f}x{1}  M/T/R/P'.format(network_tempo, wall_hint)
         elif self.active_mode == 'pulse':
-            context_row = ',/. thickness:{0:.1f}x  {1}'.format(pulse_thickness, wall_hint)
+            context_row = ',/. thickness:{0:.1f}x{1}  M/T/R/P'.format(pulse_thickness, wall_hint)
         else:
-            context_row = 'M mode  T theme  R rainbow  {0}'.format(wall_hint)
+            context_row = 'M mode  T theme  R rainbow{0}'.format(wall_hint)
 
         rows = [
             '+' + ('-' * (panel_width - 2)) + '+',
@@ -197,11 +198,13 @@ class App:
             panel_row('W/S or Up/Down : speed'),
             panel_row('A/D or Left/Right : density'),
             panel_row(context_row),
-            '+' + ('-' * (panel_width - 2)) + '+',
         ]
+        if self.wall_info:
+            rows.append(panel_row(self.wall_info))
+        rows.append('+' + ('-' * (panel_width - 2)) + '+')
 
         for offset, row in enumerate(rows):
-            reverse = offset in (0, 1, 5, 10)
+            reverse = offset in (0, 1, 5, len(rows) - 1)
             self.draw_text(y + offset, x, row, reverse=reverse, bold=not reverse)
 
     def change_speed(self, amount: int):

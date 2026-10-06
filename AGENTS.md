@@ -271,7 +271,17 @@ ocupante vai para a próxima coluna livre da linha (`wall.displace`,
 voltando ao começo da linha no fim da grade — o recém-chegado não tem
 célula anterior para trocar). O host só aceita o `--at` de um tile na
 primeira mensagem `size`; depois a célula é dele. `Esc` não sai do modo de
-layout porque em todo terminal ele encerra o app — só `L` sai.
+layout porque em todo terminal ele encerra o app — só `L` sai. O **gap**
+compensa a moldura física entre janelas: dois valores globais (colunas,
+linhas), de 0 a `wall.MAX_GAP`, que `wall.layout` esconde do canvas em
+cada emenda (entre vizinhos de uma linha e entre linhas; nada antes do
+primeiro tile nem depois do último). Teclas `<`/`>` (horizontal) e `{`/`}`
+(vertical), tratadas pelo host de qualquer tile — não `,`/`.`, que em
+Network e Pulse ajustam tempo e espessura. Vale só durante a sessão; vai
+no snapshot (`wall.snapshot_of(app, gap)`, chave `gap`, fora de
+`SNAPSHOT_KEYS` porque não é argumento do `App` — `wall.app_settings`
+filtra) e é lembrado por `run_session` para quando o terminal voltar a ser
+host. O painel ganha uma linha (`App.wall_info`) com J/L e o gap.
 
 ## Convenções e invariantes importantes
 

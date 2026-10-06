@@ -149,6 +149,14 @@ arrows adjust speed and density as usual. If a terminal joins with an `--at`
 already taken, it gets that spot and the tile that was there steps aside to the
 next free column of its row.
 
+Real windows have frames, and the picture breaks at the seam. In the wall, the
+gap keys hide a few columns or rows of the canvas at each seam, so the image
+reads as continuous behind the frame: `>` / `<` widen / narrow the horizontal
+gap (in columns), `}` / `{` the vertical one (in rows). It starts at 0 and the
+right value depends on your terminal and font, so adjust it by eye while
+watching a seam. The panel shows the current values, and the setting lasts for
+the session only.
+
 You don't have to start in the wall: press `J` in any running terminal to join
 (or start) it, and `J` again to leave. Joining adopts the wall's theme, mode,
 speed and density; leaving keeps whatever the wall had at that moment, with the
@@ -199,6 +207,7 @@ Outside screensaver mode, adjust the animation without restarting it:
 | `r` | Toggle rainbow mode |
 | `j` | Join / leave the video wall |
 | `l` | Layout mode (in the wall): arrows move this tile |
+| `<` `>` / `{` `}` | Wall seam gap: narrower / wider, horizontal / vertical |
 | `m` | Cycle visualizers: Rain, Pulse, Network |
 | `,` / `.` | Decrease/increase Network-only tempo (Network mode) |
 | `p` | Hide/show the live-control panel |

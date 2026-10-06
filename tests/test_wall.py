@@ -88,6 +88,49 @@ class GridLayoutTests(unittest.TestCase):
         self.assertEqual(placements, [(0, 0), (10, 0)])
 
 
+class GapLayoutTests(unittest.TestCase):
+    def test_a_horizontal_gap_hides_columns_between_neighbors_in_a_row(self):
+        placements, height, width = wall.layout([(60, 20), (60, 20), (40, 20)], gap=(3, 0))
+
+        self.assertEqual(placements, [(0, 0), (63, 0), (126, 0)])
+        self.assertEqual((height, width), (20, 166))
+
+    def test_a_vertical_gap_hides_rows_between_neighbors_in_a_column(self):
+        placements, height, width = wall.layout(
+            [(80, 10), (80, 12), (80, 8)], [(0, 0), (1, 0), (2, 0)], gap=(0, 2))
+
+        self.assertEqual(placements, [(0, 0), (0, 12), (0, 26)])
+        self.assertEqual((height, width), (34, 80))
+
+    def test_there_is_no_gap_before_the_first_tile_or_after_the_last(self):
+        self.assertEqual(wall.layout([(80, 24)], gap=(5, 5)), ([(0, 0)], 24, 80))
+
+    def test_both_gaps_apply_on_a_grid(self):
+        sizes = [(120, 20), (60, 20), (60, 24)]
+        positions = [(0, 0), (1, 0), (1, 1)]
+
+        placements, height, width = wall.layout(sizes, positions, gap=(4, 1))
+
+        self.assertEqual(placements, [(0, 0), (0, 21), (64, 21)])
+        self.assertEqual((height, width), (45, 124))
+
+    def test_a_zero_gap_changes_nothing(self):
+        sizes = [(60, 20), (40, 30)]
+
+        self.assertEqual(wall.layout(sizes, gap=(0, 0)), wall.layout(sizes))
+
+
+class AdjustGapTests(unittest.TestCase):
+    def test_each_axis_moves_independently_by_the_delta(self):
+        self.assertEqual(wall.adjust_gap((2, 3), 'h', 1), (3, 3))
+        self.assertEqual(wall.adjust_gap((2, 3), 'v', -1), (2, 2))
+
+    def test_the_gap_never_goes_below_zero_or_above_the_maximum(self):
+        self.assertEqual(wall.adjust_gap((0, 0), 'h', -1), (0, 0))
+        self.assertEqual(wall.adjust_gap((0, 0), 'v', -1), (0, 0))
+        self.assertEqual(wall.adjust_gap((wall.MAX_GAP, 0), 'h', 1), (wall.MAX_GAP, 0))
+
+
 class MovePositionTests(unittest.TestCase):
     def test_a_tile_moves_one_cell_in_the_given_direction(self):
         positions = [(1, 1), (5, 5)]
@@ -173,16 +216,20 @@ class SnapshotTests(unittest.TestCase):
         return SimpleNamespace(**state)
 
     def test_snapshot_reads_the_shared_settings_off_the_app(self):
-        self.assertEqual(wall.snapshot_of(self.app_like()), {
-            'color': 'cyan', 'mode': 'pulse', 'speed': 7, 'density': 3, 'rainbow': False})
+        self.assertEqual(wall.snapshot_of(self.app_like(), (2, 1)), {
+            'color': 'cyan', 'mode': 'pulse', 'speed': 7, 'density': 3, 'rainbow': False, 'gap': (2, 1)})
 
-    def test_snapshot_keys_are_arguments_the_app_constructor_accepts(self):
-        # So a terminal leaving the wall can simply build App(stdscr, **snapshot).
+    def test_the_gap_defaults_to_zero(self):
+        self.assertEqual(wall.snapshot_of(self.app_like())['gap'], (0, 0))
+
+    def test_app_settings_are_exactly_what_the_app_constructor_accepts(self):
+        # So a terminal leaving the wall can simply build App(stdscr, **settings).
         accepted = inspect.signature(App.__init__).parameters
-        snapshot = wall.snapshot_of(self.app_like())
+        settings = wall.app_settings(wall.snapshot_of(self.app_like(), (2, 1)))
 
-        self.assertEqual(sorted(snapshot), sorted(wall.SNAPSHOT_KEYS))
-        for key in snapshot:
+        self.assertEqual(sorted(settings), sorted(wall.SNAPSHOT_KEYS))
+        self.assertNotIn('gap', settings)
+        for key in settings:
             self.assertIn(key, accepted)
 
     def test_every_speed_step_survives_the_float_roundtrip(self):
@@ -191,7 +238,7 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(snapshot['speed'], speed)
 
     def test_config_message_roundtrips_the_snapshot(self):
-        snapshot = wall.snapshot_of(self.app_like(rainbow=True))
+        snapshot = wall.snapshot_of(self.app_like(rainbow=True), (3, 2))
         decoder = wall.LineDecoder()
 
         (message,) = decoder.feed(wall.encode(wall.config_message(snapshot)))
@@ -199,8 +246,10 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(wall.config_snapshot(message), snapshot)
 
     def test_decoder_rejects_invalid_configs(self):
-        good = wall.snapshot_of(self.app_like())
+        good = wall.snapshot_of(self.app_like(), (1, 1))
         bad_variants = [
+            dict(good, gap=(-1, 0)), dict(good, gap=(0, wall.MAX_GAP + 1)), dict(good, gap=(1,)),
+            dict(good, gap='ab'), dict(good, gap=(1.5, 1)), {k: v for k, v in good.items() if k != 'gap'},
             dict(good, speed=0), dict(good, speed=11), dict(good, density=0), dict(good, density=11),
             dict(good, speed='5'), dict(good, color='chartreuse'), dict(good, mode='scanner'),
             dict(good, rainbow='yes'), dict(good, color=['green']), dict(good, mode={'a': 1}), {k: v for k, v in good.items() if k != 'mode'},
