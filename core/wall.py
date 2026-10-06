@@ -15,6 +15,8 @@ from .palette import COLOR_PALETTE
 
 MAX_GRID_INDEX = 999        # row/col of a tile on the wall's grid
 MAX_GAP = 40                # columns/rows hidden at a seam, at most
+PROMOTION_STEP = 0.2        # seconds each rank waits behind the one before it
+PROMOTION_MAX_RANK = 10     # beyond this everyone waits the same, so the wait stays short
 
 
 def parse_at(text):
@@ -131,6 +133,19 @@ def layout(sizes, positions=None, gap=(0, 0)):
     return placements, max(y - gap_rows, 1), max(canvas_width, 1)
 
 
+# --- host promotion -----------------------------------------------------------
+#
+# When the host goes away, the oldest client takes over. The host tells each
+# client its *rank* (0 = oldest still connected). On losing the host, a
+# client waits promotion_delay(rank) while looking for a new host, and only
+# then tries to become one — the host lock (core/wall_io.py) keeps it to a
+# single winner even if two tries land together.
+
+def promotion_delay(rank):
+    """Seconds a client of this rank waits before trying to take over."""
+    return min(rank or 0, PROMOTION_MAX_RANK) * PROMOTION_STEP
+
+
 # --- shared settings ----------------------------------------------------------
 
 # The App settings every tile shares. They're named after App's constructor
@@ -162,6 +177,7 @@ def app_settings(snapshot):
 # One JSON object per line. Three message types:
 #   size  client -> host   {"t":"size","w":..,"h":..[,"at":[row,col]]}
 #   config host -> client  {"t":"config","color":..,"mode":..,"speed":..,"density":..,"rainbow":..,"gap":[cols,rows]}
+#   rank  host -> client   {"t":"rank","n":..}   (0 = oldest client still connected)
 #   key   client -> host   {"t":"key","k":<curses key code>}
 #   frame host -> client   {"t":"frame","cells":[[y,x,char,[r,g,b],bold,reverse],..],
 #                           "bgs":[[y,x,[r,g,b]],..]}
@@ -191,6 +207,10 @@ def frame_cells(message):
     cells = [(y, x, char, tuple(rgb), bold, reverse) for y, x, char, rgb, bold, reverse in message['cells']]
     bgs = [(y, x, tuple(rgb)) for y, x, rgb in message['bgs']]
     return cells, bgs
+
+
+def rank_message(rank):
+    return {'t': 'rank', 'n': rank}
 
 
 def config_message(snapshot):
@@ -243,6 +263,8 @@ def _valid(message):
                 and _is_valid_at(message.get('at')))
     if kind == 'key':
         return _is_int(message.get('k'))
+    if kind == 'rank':
+        return _is_int(message.get('n')) and 0 <= message['n'] <= MAX_TILE_SIZE
     if kind == 'config':
         return (isinstance(message.get('color'), str) and message['color'] in COLOR_PALETTE
                 and isinstance(message.get('mode'), str) and message['mode'] in MODE_ORDER

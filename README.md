@@ -160,11 +160,15 @@ the session only.
 You don't have to start in the wall: press `J` in any running terminal to join
 (or start) it, and `J` again to leave. Joining adopts the wall's theme, mode,
 speed and density; leaving keeps whatever the wall had at that moment, with the
-animation starting over. If the host closes, the other tiles carry on on their
-own with the wall's last settings. (While you're hosting, `J` dissolves the
-wall the same way.)
+animation starting over. Closing the first terminal doesn't end the wall:
+when the host goes away (`q`, `Ctrl+C`, a crash, or leaving with `J`), the
+oldest remaining tile takes over as host with the wall's last settings
+(theme, mode, speed, density and gap) and the others reconnect to it. The
+animation starts over, but the picture carries on. Tile positions you moved
+with layout mode aren't carried over — tiles go back to the `--at` they
+declared.
 
-`q` or `Esc` in a joined tile quits that terminal; `q` in the host quits the host.
+`q` or `Esc` quits that terminal, whether it's the host or not.
 `--wall` can't be combined with `-S`. The wall is local to your user on this
 machine (a private Unix socket); it doesn't connect across machines.
 

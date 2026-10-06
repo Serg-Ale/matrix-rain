@@ -256,11 +256,17 @@ não viram dois hosts. Os modos não sabem do wall: só veem
 `app.width`/`app.height`. `J` alterna a participação: em standalone, entra
 no wall (vira host se não houver um; senão vira cliente e a configuração
 do wall vence); dentro, sai e o terminal reconstrói o `App` com o último
-snapshot de configuração (`wall.snapshot_of`: cor, modo, velocidade,
-densidade, arco-íris — as chaves são os argumentos do construtor do
-`App`), com a simulação recomeçando. O host manda a configuração aos
-clientes (mensagem `config`) ao aceitá-los e sempre que ela muda. Se o
-host fecha, os clientes seguem standalone com o último snapshot.
+snapshot de configuração (`wall.snapshot_of`), com a simulação
+recomeçando. O host manda a configuração aos clientes (mensagem `config`)
+ao aceitá-los e sempre que ela muda. Se o host sai (`q`, `Ctrl+C`, queda
+ou `J`), há **sucessão**: o host manda a cada cliente o seu posto
+(mensagem `rank`, 0 = o mais antigo ainda conectado, reenviado quando
+alguém entra ou cai); ao perder o host, o cliente fica em `run_session`
+(resultado `gone`) e, em `run_wall(rank=...)`, procura um novo host por
+`wall.promotion_delay(rank)` antes de tentar virar um — o `flock` garante
+um vencedor só, e os demais reconectam. O novo host usa o último snapshot
+(incluindo o gap) e a simulação recomeça; as posições movidas pelo modo de
+layout não migram, cada tile volta ao `--at` que declarou.
 `core.wall_io.run_session` é o ciclo de vida de um terminal (standalone ⇄
 wall). `L` liga o modo de layout do tile em cuja janela foi apertada: as
 setas dele movem o tile na grade (`wall.move_position`: mover para uma

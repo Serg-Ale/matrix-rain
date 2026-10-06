@@ -265,6 +265,35 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(wall.LineDecoder().feed(raw), [])
 
 
+class PromotionTests(unittest.TestCase):
+    def test_the_oldest_client_does_not_wait(self):
+        self.assertEqual(wall.promotion_delay(0), 0)
+
+    def test_older_clients_get_their_turn_before_younger_ones(self):
+        delays = [wall.promotion_delay(rank) for rank in range(wall.PROMOTION_MAX_RANK + 1)]
+
+        self.assertEqual(delays, sorted(delays))
+        self.assertEqual(len(set(delays)), len(delays))
+
+    def test_the_wait_is_bounded_however_young_the_client(self):
+        self.assertEqual(wall.promotion_delay(10 ** 6), wall.promotion_delay(wall.PROMOTION_MAX_RANK))
+        self.assertLess(wall.promotion_delay(10 ** 6), 3.0)
+
+    def test_a_missing_rank_counts_as_the_oldest(self):
+        self.assertEqual(wall.promotion_delay(None), 0)
+
+    def test_rank_message_roundtrips(self):
+        (message,) = wall.LineDecoder().feed(wall.encode(wall.rank_message(2)))
+
+        self.assertEqual(message, {'t': 'rank', 'n': 2})
+
+    def test_decoder_rejects_invalid_ranks(self):
+        raw = (wall.encode({'t': 'rank', 'n': -1}) + wall.encode({'t': 'rank', 'n': 'x'})
+               + wall.encode({'t': 'rank', 'n': 10 ** 9}) + wall.encode({'t': 'rank'}))
+
+        self.assertEqual(wall.LineDecoder().feed(raw), [])
+
+
 class CodecTests(unittest.TestCase):
     def roundtrip(self, message):
         decoder = wall.LineDecoder()

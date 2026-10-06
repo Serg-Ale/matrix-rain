@@ -183,8 +183,9 @@ class _Tile:
 # user pressed J), ``'gone'`` (the wall dissolved under a client) or
 # ``'quit'`` (q/Esc/Ctrl+C); ``snapshot`` is the last shared settings seen,
 # for the terminal to carry back to standalone; ``message`` is what to
-# print when quitting.
-WallResult = namedtuple('WallResult', 'reason snapshot message')
+# print when quitting; ``rank`` is the client's place in line to take over
+# (0 = oldest) when its host is gone.
+WallResult = namedtuple('WallResult', 'reason snapshot message rank')
 
 
 def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
@@ -200,9 +201,17 @@ def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
     local_screen = Screen(height, width)
     config = wall.snapshot_of(app, gap)
 
+    def send_ranks():
+        """Tell every client its place in line to take over if we go away."""
+        clients = [t for t in tiles if t.conn]
+        for rank, client in enumerate(clients):
+            if not client.conn.send(wall.rank_message(rank)):
+                client.conn.close()  # its own receive() will report the drop
+
     def drop(tile):
         tile.conn.close()
         tiles.remove(tile)
+        send_ranks()
 
     def sized_tiles():
         return [t for t in tiles if t.width > 0 and t.height > 0]
@@ -264,6 +273,8 @@ def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
                     tiles.append(newcomer)
                     if not newcomer.conn.send(wall.config_message(config)):
                         drop(newcomer)
+                    else:
+                        send_ranks()
                     continue
                 tile = next(t for t in tiles if t.conn is source)
                 messages = tile.conn.receive()
@@ -337,8 +348,8 @@ def run_host(stdscr, listener, kwargs, at, gap=(0, 0)):
         listener.close()
     snapshot = wall.snapshot_of(app, gap)
     if app.wall_toggle_requested:
-        return WallResult('left', snapshot, None)
-    return WallResult('quit', snapshot, 'wall closed')
+        return WallResult('left', snapshot, None, 0)
+    return WallResult('quit', snapshot, 'wall closed', 0)
 
 
 # --- client -------------------------------------------------------------------
@@ -351,6 +362,7 @@ def run_client(stdscr, conn, at=None):
     screen = Screen(height, width)
     sent_size = None
     config = None
+    rank = 0
 
     try:
         while True:
@@ -358,9 +370,9 @@ def run_client(stdscr, conn, at=None):
             key = stdscr.getch()
             while key != -1:
                 if key in _QUIT_KEYS:
-                    return WallResult('quit', config, 'left the wall')
+                    return WallResult('quit', config, 'left the wall', rank)
                 if key in _TOGGLE_KEYS:
-                    return WallResult('left', config, None)
+                    return WallResult('left', config, None, rank)
                 if key != curses.KEY_RESIZE:
                     conn.send(wall.key_message(key))
                 key = stdscr.getch()
@@ -368,7 +380,7 @@ def run_client(stdscr, conn, at=None):
             height, width = stdscr.getmaxyx()
             if (height, width) != sent_size:
                 if not conn.send(wall.size_message(width, height, at)):
-                    return WallResult('gone', config, None)
+                    return WallResult('gone', config, None, rank)
                 sent_size = (height, width)
 
             ready, _, _ = select.select([conn], [], [], 0.01)
@@ -376,11 +388,13 @@ def run_client(stdscr, conn, at=None):
                 continue
             messages = conn.receive()
             if messages is None:
-                return WallResult('gone', config, None)
+                return WallResult('gone', config, None, rank)
 
             for message in messages:
                 if message['t'] == 'config':
                     config = wall.config_snapshot(message)
+                elif message['t'] == 'rank':
+                    rank = message['n']
             frames = [m for m in messages if m['t'] == 'frame']
             if not frames:
                 continue
@@ -398,10 +412,23 @@ def run_client(stdscr, conn, at=None):
 
 # --- entry --------------------------------------------------------------------
 
-def run_wall(stdscr, kwargs, at=None, transport=None, gap=(0, 0)):
+def run_wall(stdscr, kwargs, at=None, transport=None, gap=(0, 0), rank=None):
     """Join the wall if a host is running, otherwise become the host with
-    ``kwargs`` (App's constructor settings) as the wall's settings."""
+    ``kwargs`` (App's constructor settings) as the wall's settings.
+
+    ``rank`` is set when the wall's host just went away and this client is
+    taking part in the succession: it looks for a new host for its turn
+    (``wall.promotion_delay``) before trying to become one itself, so the
+    oldest client wins.
+    """
     transport = transport or UnixTransport()
+    if rank is not None:
+        deadline = time.time() + wall.promotion_delay(rank)
+        while time.time() < deadline:
+            conn = transport.connect()
+            if conn:
+                return run_client(stdscr, conn, at)
+            time.sleep(0.05)
     for _ in range(40):
         conn = transport.connect()
         if conn:
@@ -424,20 +451,27 @@ def run_session(stdscr, args, transport=None):
 
     J joins the wall from standalone and leaves it from inside; entering
     adopts the wall's settings (the host's, or — when this terminal starts
-    the wall — its own), leaving keeps whatever the wall had last.
+    the wall — its own), leaving keeps whatever the wall had last. When a
+    client's host goes away it stays in the wall: the oldest client becomes
+    the new host with the last settings, the rest reconnect to it.
     Returns a message to print on exit, or None.
     """
     settings = {key: getattr(args, key) for key in wall.SNAPSHOT_KEYS}
     gap = (0, 0)  # the wall's own setting; kept so rejoining as host remembers it
     in_wall = args.wall
+    rank = None  # set while taking part in the succession after a host went away
     while True:
         if in_wall:
-            result = run_wall(stdscr, settings, args.at, transport, gap)
+            result = run_wall(stdscr, settings, args.at, transport, gap, rank)
+            rank = None
             if result.reason == 'quit':
                 return result.message
             if result.snapshot:
                 settings = wall.app_settings(result.snapshot)
                 gap = result.snapshot['gap']
+            if result.reason == 'gone':
+                rank = result.rank  # the host is gone: stay in the wall and take over
+                continue
             in_wall = False
         else:
             app = App(stdscr, screensaver=args.screensaver, **settings)
