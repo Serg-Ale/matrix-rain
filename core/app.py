@@ -1,5 +1,7 @@
-"""Orchestration: curses lifecycle, color/drawing helpers shared by every
-mode, the main loop, input handling, resize, and the live-control panel.
+"""Orchestration: curses lifecycle (input/resize/alt-screen only — see
+core/screen.py for why drawing bypasses it), color/drawing helpers shared
+by every mode, the main loop, input handling, resize, and the live-control
+panel.
 
 Mode-specific state and rendering live in ``modes/*.py`` instead — this
 class only owns what's genuinely shared across all of them.
@@ -10,13 +12,15 @@ import time
 
 from modes import MODE_CLASSES, MODE_ORDER
 
-from .palette import COLOR_PALETTE, CONTRAST_COLORS, CONTRAST_PAIR, NUM_SHADES, RAINBOW_SEQUENCE
+from . import color as color_engine
+from .palette import COLOR_PALETTE, NUM_SHADES, RAINBOW_SEQUENCE, contrast_rgb, theme_gradient_stops
+from .screen import Screen
 
 
 class App:
     """Runs the visualizer: curses setup, mode dispatch, live controls."""
 
-    def __init__(self, stdscr, color: str = 'green', speed: int = 5,
+    def __init__(self, stdscr, color: str = 'green', mode: str = 'rain', speed: int = 5,
                  density: int = 7, screensaver: bool = False, rainbow: bool = False):
         self.stdscr = stdscr
         self.color_name = color
@@ -27,132 +31,109 @@ class App:
         self.frame_count = 0
         self.panel_visible = not screensaver
         self.status_message = 'Ready — customize while it runs'
-        self.contrast_colors_available = False
-        self.active_mode = 'rain'
+        # core.cli's argparse choices already guarantee a valid mode for
+        # the CLI path — this fallback is for App's own sake as a public
+        # constructor (e.g. tests instantiating it directly), not a second
+        # enforcement of the same CLI validation.
+        self.active_mode = mode if mode in MODE_ORDER else MODE_ORDER[0]
 
         # Get terminal dimensions
         self.height, self.width = stdscr.getmaxyx()
+
+        # Detected once — a terminal's true-color support doesn't change
+        # mid-session. Everything drawn goes through this same decision, so
+        # there's exactly one place (core.color.ansi_fg) that ever branches
+        # on it.
+        self.truecolor = color_engine.supports_truecolor()
+        self.screen = Screen(self.height, self.width)
 
         # One instance per registered mode, kept alive for the whole run so
         # switching modes doesn't lose state (e.g. Rain's trails keep
         # falling in the background while you're looking at Network).
         self.modes = {name: cls() for name, cls in MODE_CLASSES.items()}
 
-        # Setup curses
+        # Setup curses — input/resize/alt-screen only, no color pairs: see
+        # core/screen.py for why drawing bypasses curses entirely.
         self._setup_curses()
-        self._setup_colors()
 
-        # Rain is the only mode that needs to be ready before the first
-        # frame — the others initialize lazily on activation/first update,
-        # same as before this module was split out.
+        # Rain always needs to be ready before the first frame — its state
+        # is tracked continuously regardless of the active mode (see
+        # handle_resize/change_density below). Network only resets on
+        # activation, same rule whether that happens here at startup or
+        # later via cycle_mode.
         self.modes['rain'].reset(self)
+        if self.active_mode == 'network':
+            self.modes['network'].reset(self)
 
     def _setup_curses(self):
-        """Configure curses settings."""
+        """Configure curses settings — input/resize/alt-screen only."""
         curses.curs_set(0)          # Hide cursor
         self.stdscr.nodelay(True)   # Non-blocking input
         self.stdscr.timeout(0)      # Don't wait for input
-        curses.start_color()
-        curses.use_default_colors()
-
-    def _setup_colors(self):
-        """Initialize color pairs using the 256-color palette."""
-        self.contrast_colors_available = False
-        # Get the color palette for the selected theme
-        palette = COLOR_PALETTE.get(self.color_name, COLOR_PALETTE['green'])
-
-        # Create color pairs for each brightness level
-        # Using pairs 1-8 for the main theme
-        for i, color_idx in enumerate(palette):
-            try:
-                curses.init_pair(i + 1, color_idx, -1)
-            except curses.error:
-                # Fallback to basic colors if 256-color fails
-                self._setup_fallback_colors()
-                return
-
-        # Setup rainbow color pairs (pairs 10+)
-        # Each rainbow color gets 8 shades
-        pair_offset = 10
-        for theme_idx, theme_name in enumerate(RAINBOW_SEQUENCE):
-            theme_palette = COLOR_PALETTE[theme_name]
-            for shade_idx, color_idx in enumerate(theme_palette):
-                pair_num = pair_offset + (theme_idx * NUM_SHADES) + shade_idx
-                try:
-                    curses.init_pair(pair_num, color_idx, -1)
-                except curses.error:
-                    pass
-
-        try:
-            curses.init_pair(CONTRAST_PAIR, CONTRAST_COLORS.get(self.color_name, 51), -1)
-            self.contrast_colors_available = True
-        except curses.error:
-            pass
-
-    def _setup_fallback_colors(self):
-        """Fallback color setup for terminals without 256-color support."""
-        # Map color names to basic curses colors
-        color_map = {
-            'green': curses.COLOR_GREEN,
-            'red': curses.COLOR_RED,
-            'blue': curses.COLOR_BLUE,
-            'cyan': curses.COLOR_CYAN,
-            'magenta': curses.COLOR_MAGENTA,
-            'yellow': curses.COLOR_YELLOW,
-            'white': curses.COLOR_WHITE,
-        }
-
-        base_color = color_map.get(self.color_name, curses.COLOR_GREEN)
-
-        # Create basic color pairs with attributes to simulate gradient
-        curses.init_pair(1, curses.COLOR_WHITE, -1)   # Head (white)
-        curses.init_pair(2, base_color, -1)           # Glow 1
-        curses.init_pair(3, base_color, -1)           # Glow 2
-        curses.init_pair(4, base_color, -1)           # Bright
-        curses.init_pair(5, base_color, -1)           # Medium-bright
-        curses.init_pair(6, base_color, -1)           # Medium
-        curses.init_pair(7, base_color, -1)           # Dim
-        curses.init_pair(8, base_color, -1)           # Very dim
 
     # --- shared drawing helpers, used by every mode --------------------------
 
-    def add_char(self, y: int, x: int, char: str, attr: int = 0):
-        """Draw one safe terminal cell. Swallows edge/width curses.error."""
-        if 0 <= y < self.height and 0 <= x < self.width:
-            try:
-                self.stdscr.addstr(y, x, char, attr)
-            except curses.error:
-                pass
+    def add_char(self, y: int, x: int, char: str, color):
+        """Draw one safe terminal cell. `color` is whatever get_color/
+        get_contrast_color returned — out-of-bounds and the "invisible"
+        sentinel are both silent no-ops, the same safety every mode used
+        to get from curses.error."""
+        rgb, bold, reverse = color
+        if rgb is None:
+            return
+        self.screen.set_cell(y, x, char, rgb, bold=bold, reverse=reverse)
 
-    def get_color_attr(self, brightness: int, column_x: int = 0) -> int:
-        """Get the curses color attribute for a given brightness level."""
-        if brightness >= NUM_SHADES:
-            return 0  # Invisible
+    def add_background(self, y: int, x: int, rgb):
+        """Queue a background-only fill for one cell — for a mode's own
+        depth/fill layer (e.g. Pulse's gradient wash) where there's no
+        foreground character, just color. A character drawn via add_char
+        always wins over this for the same cell."""
+        self.screen.set_bg(y, x, rgb)
 
+    def _resolve_theme(self, column_x: int) -> str:
+        """Which theme's gradient a cell should draw from — cycling
+        through RAINBOW_SEQUENCE by column when rainbow mode is on,
+        otherwise the active theme. Shared by get_color and
+        get_background_rgb so both branches of "what color is this",
+        quantized brightness or continuous t, agree on theme selection.
+        """
         if self.rainbow:
-            # Cycle through rainbow colors based on column and frame
             theme_idx = (column_x + self.frame_count // 10) % len(RAINBOW_SEQUENCE)
-            pair_num = 10 + (theme_idx * NUM_SHADES) + brightness
-            attr = curses.color_pair(pair_num)
-            # Add bold for brightest shades
-            if brightness <= 1:
-                attr |= curses.A_BOLD
-            return attr
+            return RAINBOW_SEQUENCE[theme_idx]
+        return self.color_name
 
-        # Use the pre-defined color pairs (1-8)
-        attr = curses.color_pair(brightness + 1)
+    def get_background_rgb(self, t: float, column_x: int = 0):
+        """Continuous-t (0..1) gradient color for a mode's own background
+        depth layer — no brightness quantization, no bold/reverse, just
+        RGB. Same theme/rainbow selection as get_color, so a background
+        layer always matches the active palette. Used by Rain's ghost
+        layer and Pulse's gradient wash (see modes/rain.py, modes/pulse.py).
+        """
+        theme_name = self._resolve_theme(column_x)
+        stops = theme_gradient_stops(theme_name)
+        return color_engine.gradient(stops, t)
 
-        # Add bold for the brightest shades (head and glow)
-        if brightness <= 2:
-            attr |= curses.A_BOLD
+    def get_color(self, brightness: int, column_x: int = 0):
+        """Resolve a brightness level (0=brightest, up to NUM_SHADES-1) to
+        a (rgb, bold, reverse) color for the current theme/rainbow state.
 
-        return attr
+        Returns (None, False, False) — meaning "don't draw" — for
+        brightness at or beyond NUM_SHADES; no mode currently passes one
+        that high (each clamps its own trail/fade math beforehand), so
+        this is a defensive floor, not a reachable path in practice.
+        """
+        if brightness >= NUM_SHADES:
+            return (None, False, False)
 
-    def get_contrast_attr(self) -> int:
-        """Return a complementary fill color, or a readable fallback."""
-        if self.contrast_colors_available:
-            return curses.color_pair(CONTRAST_PAIR) | curses.A_DIM
-        return curses.A_REVERSE
+        bold = brightness <= (1 if self.rainbow else 2)
+        t = brightness / float(NUM_SHADES - 1)
+        rgb = self.get_background_rgb(t, column_x)
+        return (rgb, bold, False)
+
+    def get_contrast_color(self):
+        """Complementary fill color for the network mode's face texture."""
+        rgb = contrast_rgb(self.color_name)
+        return (color_engine.dim(rgb, 0.6), False, False)
 
     # --- live controls ---------------------------------------------------
 
@@ -163,6 +144,13 @@ class App:
     def _meter(self, value: int) -> str:
         """Return a compact ten-step meter for the control panel."""
         return '[' + ('#' * value) + ('.' * (10 - value)) + ']'
+
+    def _draw_text(self, y: int, x: int, text: str, reverse: bool = False, bold: bool = False):
+        """Write a row of panel text — always neutral white, since the
+        panel was never theme-colored (it used curses' default terminal
+        foreground plus A_REVERSE/A_BOLD before this ticket)."""
+        for offset, char in enumerate(text):
+            self.add_char(y, x + offset, char, ((255, 255, 255), bold, reverse))
 
     def _draw_control_panel(self):
         """Draw a compact btop-inspired live-control overlay."""
@@ -179,6 +167,14 @@ class App:
             return '| ' + content[:39].ljust(39) + ' |'
 
         network_tempo = self.modes['network'].tempo
+        pulse_thickness = self.modes['pulse'].thickness
+
+        if self.active_mode == 'network':
+            context_row = ',/. net:{0:.1f}x  M/T/R/P controls'.format(network_tempo)
+        elif self.active_mode == 'pulse':
+            context_row = ',/. thickness:{0:.1f}x  M/T/R/P controls'.format(pulse_thickness)
+        else:
+            context_row = 'M mode  T theme  R rainbow  P hide'
 
         rows = [
             '+' + ('-' * (panel_width - 2)) + '+',
@@ -190,16 +186,13 @@ class App:
             panel_row(self.status_message),
             panel_row('W/S or Up/Down : speed'),
             panel_row('A/D or Left/Right : density'),
-            panel_row(',/. net:{0:.1f}x  M/T/R/P controls'.format(network_tempo) if self.active_mode == 'network' else 'M mode  T theme  R rainbow  P hide'),
+            panel_row(context_row),
             '+' + ('-' * (panel_width - 2)) + '+',
         ]
 
-        try:
-            for offset, row in enumerate(rows):
-                attr = curses.A_REVERSE if offset in (0, 1, 5, 10) else curses.A_BOLD
-                self.stdscr.addstr(y + offset, x, row, attr)
-        except curses.error:
-            pass
+        for offset, row in enumerate(rows):
+            reverse = offset in (0, 1, 5, 10)
+            self._draw_text(y + offset, x, row, reverse=reverse, bold=not reverse)
 
     def change_speed(self, amount: int):
         """Change speed live and keep every stream's relative variation."""
@@ -232,12 +225,15 @@ class App:
         """Set a network-only speed multiplier for deliberately slow scenes."""
         self.modes['network'].change_tempo(amount, self)
 
+    def change_pulse_thickness(self, amount: float):
+        """Set a pulse-only ring-thickness multiplier."""
+        self.modes['pulse'].change_thickness(amount, self)
+
     def cycle_theme(self):
         """Cycle normal color themes and leave rainbow mode."""
         themes = list(COLOR_PALETTE.keys())
         self.color_name = themes[(themes.index(self.color_name) + 1) % len(themes)]
         self.rainbow = False
-        self._setup_colors()
         self.show_status('Theme: {0}'.format(self.color_name))
 
     def cycle_mode(self):
@@ -255,6 +251,7 @@ class App:
         if new_height != self.height or new_width != self.width:
             old_height, old_width = self.height, self.width
             self.height, self.width = new_height, new_width
+            self.screen.resize(new_height, new_width)
 
             # Rain's grids/columns always track terminal size, even while
             # another mode is on screen, so switching back to it is never
@@ -262,7 +259,6 @@ class App:
             self.modes['rain'].handle_resize(self, old_height, old_width)
             if self.active_mode == 'network':
                 self.modes['network'].reset(self)
-            self.stdscr.clear()
 
     def check_input(self) -> bool:
         """Check for user input. Returns True if should exit."""
@@ -289,6 +285,10 @@ class App:
                     self.change_network_tempo(-0.1)
                 elif self.active_mode == 'network' and key == ord('.'):
                     self.change_network_tempo(0.1)
+                elif self.active_mode == 'pulse' and key == ord(','):
+                    self.change_pulse_thickness(-0.1)
+                elif self.active_mode == 'pulse' and key == ord('.'):
+                    self.change_pulse_thickness(0.1)
                 elif key == ord('r') or key == ord('R'):
                     self.rainbow = not self.rainbow
                     message = 'Rainbow enabled' if self.rainbow else 'Theme: {0}'.format(self.color_name)
@@ -320,16 +320,16 @@ class App:
                 # Handle terminal resize
                 self.handle_resize()
 
-                # Clear screen
-                self.stdscr.erase()
+                # Start a new frame
+                self.screen.clear()
 
                 # Update and draw the active visualizer.
                 self.modes[self.active_mode].render(self)
 
                 self._draw_control_panel()
 
-                # Refresh screen
-                self.stdscr.refresh()
+                # Push the frame to the terminal
+                self.screen.flush(self.truecolor)
 
                 # Frame timing
                 frame_time = time.time() - frame_start

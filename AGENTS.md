@@ -14,14 +14,24 @@ Arquivos versionados:
   `sys.path` e chama `core.cli.run()`. A implementação real vive em `core/` e
   `modes/`.
 - `core/`: motor compartilhado por todos os modos.
-  - `app.py`: orquestração — ciclo de vida do `curses`, loop principal,
-    entrada, resize, cores/desenho compartilhados, painel de controle. A
-    classe `App` é o equivalente ao antigo `MatrixRain`.
+  - `app.py`: orquestração — ciclo de vida do `curses` (só entrada, resize e
+    tela alternativa — ver `screen.py` abaixo), loop principal,
+    cores/desenho compartilhados, painel de controle. A classe `App` é o
+    equivalente ao antigo `MatrixRain`.
   - `cli.py`: parsing de argumentos (`parse_args`) e bootstrap do `curses`
     (`run`).
   - `charset.py`: conjuntos de caracteres (Katakana, números, símbolos).
-  - `palette.py`: paleta de 256 cores por tema (pré-true-color — ver issue
-    #3), sequência do arco-íris, cores de contraste.
+  - `color.py`: motor de cor puro — sem `curses`, sem I/O, 100% testável
+    (`tests/test_color.py`). Detecção de true color via `COLORTERM`,
+    gradiente contínuo RGB, conversão de índice 256 → RGB e o inverso
+    (snap determinístico), e a sequência ANSI final (`ansi_fg`).
+  - `palette.py`: paleta de 256 cores por tema (a mesma de sempre — ainda é
+    o piso de qualidade do fallback) e `theme_gradient_stops()`, que
+    converte essas 8 cores por tema em pontos de controle RGB para o
+    gradiente contínuo.
+  - `screen.py`: o único lugar que escreve na tela de verdade. Mantém um
+    buffer de frame e emite ANSI bruto (true color ou fallback 256,
+    conforme `App.truecolor`) — ver "Motor de cor" abaixo para o porquê.
 - `modes/`: um arquivo por modo de visualização, cada um implementando a
   interface `modes.base.Mode` (`reset(app)`, `render(app)`).
   - `rain.py`: chuva digital — `Column`, grades persistentes de
@@ -34,14 +44,83 @@ Arquivos versionados:
     produto deliberada.
   - `__init__.py`: registro dos modos — `MODE_ORDER` (ordem do ciclo da tecla
     `m`) e `MODE_CLASSES` (nome → classe).
+- `tests/`: testes de unidade (stdlib `unittest`) para a lógica pura de
+  `core/color.py` e `core/palette.py`. Nada que dependa de `curses` é
+  testado automaticamente — ver "Como executar e validar".
 - `README.md`: documentação voltada a pessoas e exemplos de uso.
 - `assets/demo.gif`: demonstração visual usada no README.
 
-Um modo nunca importa `curses` diretamente nem escreve na tela por conta
-própria — ele recebe a instância de `App` e usa `app.add_char()`,
-`app.get_color_attr()`, `app.get_contrast_attr()`, `app.width`/`app.height`,
-etc. Isso é o que torna os módulos de modo testáveis/portáveis sem arrastar
-`curses` junto.
+Um modo nunca importa `curses` nem escreve na tela por conta própria — ele
+recebe a instância de `App` e usa `app.add_char()`, `app.add_background()`,
+`app.get_color()`, `app.get_background_rgb()`, `app.get_contrast_color()`,
+`app.width`/`app.height`, etc. Isso é o que torna os módulos de modo
+testáveis/portáveis sem arrastar `curses` junto. Não há mais exceção para
+isso: antes da issue #3, `RainMode._draw()` escrevia em
+`app.stdscr.addstr()` diretamente; agora ela passa por `app.add_char()`
+como todo mundo, porque o próprio `curses` não desenha mais nada (ver
+"Motor de cor" abaixo).
+
+## Motor de cor
+
+Antes da issue #3, cores vinham de pares de cor do `curses`
+(`curses.init_pair`/`curses.color_pair`), limitados à paleta de 256 cores —
+o motivo é técnico: `curses` só expõe true color quando o `terminfo`
+declara `COLORS >= 16777216`, o que praticamente nenhum terminal comum
+anuncia mesmo suportando 24-bit de verdade. Por isso o desenho não passa
+mais por `curses` de jeito nenhum: `curses` cuida só de entrada
+(`stdscr.getch()`), resize (`stdscr.getmaxyx()`) e da tela alternativa
+(via `curses.wrapper()`); todo o desenho (`App.add_char`,
+`App._draw_control_panel`) escreve num `core.screen.Screen`, que emite ANSI
+bruto direto pro terminal.
+
+- `App.truecolor` é detectado uma vez (`color.supports_truecolor()`, a
+  partir de `COLORTERM`) e usado em `Screen.flush()` pra decidir entre
+  `\x1b[38;2;r;g;bm` (true color) e `\x1b[38;5;{índice}m` (fallback,
+  índice do 256-color mais próximo via `color.nearest_256`).
+- `App.get_color(brightness, column_x)` resolve um nível de brilho (0 a
+  `NUM_SHADES-1`) numa cor `(rgb, bold, reverse)`, interpolando
+  continuamente entre os 8 pontos de `palette.theme_gradient_stops()` do
+  tema ativo — em vez de indexar direto numa tabela fixa de 8 cores como
+  antes. `App.get_background_rgb(t, column_x)` é a mesma ideia sem
+  quantização de brilho: um `t` contínuo em `[0, 1]`, sem bold/reverse, RGB
+  puro — é o que os modos usam pra camadas de fundo (ver "Profundidade de
+  fundo" abaixo). Os dois compartilham a mesma seleção de tema/arco-íris
+  (`App._resolve_theme`), então uma camada de fundo nunca destoa da paleta
+  ativa.
+- `Screen` mantém duas camadas por célula: `set_cell` (caractere de
+  primeiro plano, usado por `add_char`) e `set_bg` (preenchimento de cor
+  sem caractere, usado por `add_background`). Onde as duas coexistem, o
+  primeiro plano sempre vence — a camada de fundo só aparece nas células
+  que ninguém mais desenhou naquele frame.
+- `Screen` reposiciona o cursor explicitamente antes de cada caractere (em
+  vez de confiar no avanço automático do terminal) e nunca escreve no
+  canto inferior-direito — duas lições vindas do protótipo de fundo/
+  profundidade (issue #1): caracteres Katakana de largura completa
+  desalinham a linha se o cursor só avança sozinho, e escrever a última
+  célula da última linha aciona auto-scroll na maioria dos terminais.
+
+## Profundidade de fundo
+
+Todo modo precisa expressar uma noção de fundo→frente — não é opcional,
+é um requisito estrutural da spec (issue #1, item 6). Cada modo resolve
+isso à sua própria maneira (motor comum, personalidade por modo — ver
+issue #1, item 5):
+
+- **Network** (não mexido por esta convenção — já tinha desde antes do
+  split modular): `network_stars`, um campo 3D próprio com perspectiva
+  acoplada à câmera do modo.
+- **Rain**: uma "ghost layer" — uma segunda leva de colunas (`ghost_columns`
+  em `modes/rain.py`), mais esparsa, mais lenta e mais escura que o rastro
+  principal, desenhada *antes* do rastro principal em cada `render()` pra
+  que este sempre sobreponha aquela onde as duas coincidem.
+- **Pulse**: um "gradient wash" — um preenchimento de fundo radial
+  (`PulseMode._draw_wash`) cuja intensidade acompanha a mesma fase que
+  move os anéis (`self.phase`), sem nenhum caractere extra.
+
+As duas técnicas (Rain, Pulse) foram validadas visualmente via `/prototype`
+antes da implementação — ver comentário de veredito na issue #1 e a branch
+`prototype/rain-pulse-depth-bg`. Não redesenhe a estética delas sem passar
+por esse mesmo processo.
 
 ## Como executar e validar
 
@@ -52,22 +131,30 @@ real; ela deliberadamente falha quando a saída é redirecionada.
 # validação estática mínima
 python3 -m py_compile matrix-rain core/*.py modes/*.py
 
+# testes de unidade (só lógica pura — color.py e palette.py, sem curses)
+python3 -m unittest discover -s tests -t .
+
 # validação da interface de linha de comando (não precisa de TTY)
 ./matrix-rain --help
 
 # execução interativa manual
 ./matrix-rain -c green -s 5 -d 7
+
+# forçar o caminho de fallback (256 cores) mesmo num terminal truecolor
+COLORTERM= ./matrix-rain -c green -s 5 -d 7
 ```
 
-Não existe uma suíte de testes automatizados ainda (ver issue #3 e #6 para os
-dois módulos que vão ganhar testes de unidade: motor de cor e presets — o
-resto continua exigindo validação manual porque depende de `curses`). Depois
-de alterar a renderização ou a interação, faça ao menos uma verificação
-manual em um terminal 256 cores:
+`tests/` cobre `core/color.py` e `core/palette.py` (motor de cor: detecção de
+`COLORTERM`, gradiente, conversão de/para 256 cores) e, quando a issue #6
+(presets) for implementada, o parsing/merge de TOML — o resto continua
+exigindo validação manual porque depende de `curses`/do terminal de verdade.
+Depois de alterar a renderização ou a interação, faça ao menos uma
+verificação manual em um terminal 256 cores:
 
 - confirme que `q`, `Esc` e `Ctrl+C` restauram o terminal;
 - redimensione a janela durante a animação;
-- teste um tema comum e `--rainbow`;
+- teste um tema comum e `--rainbow`, em ambos os caminhos de cor (truecolor
+  e `COLORTERM=` forçando fallback);
 - em `-S`, confirme que qualquer tecla encerra o programa.
 - fora de `-S`, altere velocidade e densidade durante a animação e confira o
   painel persistente de estado.
@@ -75,11 +162,12 @@ manual em um terminal 256 cores:
 ## Arquitetura e fluxo de execução
 
 `core.cli.parse_args()` define a CLI. `core.cli.run()` trata o atalho
-`--help` sem precisar de TTY, converte `-c rainbow`/`-r` numa única
-configuração de arco-íris, e roda tudo dentro de `curses.wrapper()`. `App`
-(`core/app.py`) é instanciada uma vez por execução e mantém uma instância de
-cada modo registrado (`self.modes`) viva pelo processo inteiro — trocar de
-modo não destrói o estado do modo anterior (por isso o rain continua "caindo"
+`--help` sem precisar de TTY, e roda tudo dentro de `curses.wrapper()`. `App`
+(`core/app.py`) é instanciada uma vez por execução, com o modo inicial
+escolhido por `-m/--mode` (default: o primeiro de `MODE_ORDER`), e mantém uma
+instância de cada modo registrado (`self.modes`) viva pelo processo inteiro
+— trocar de modo não destrói o estado do modo anterior (por isso o rain
+continua "caindo"
 em segundo plano enquanto você olha o Network).
 
 Cada `Column` (em `modes/rain.py`) representa uma coluna independente de
@@ -131,14 +219,16 @@ antiga velocidade global 2.
   posteriores.
 - `COLOR_PALETTE` (`core/palette.py`) usa índices xterm de 256 cores e deve
   sempre conter exatamente `NUM_SHADES` (8) entradas por tema. O índice 0 é
-  a cabeça branca.
-- Os pares de cor 1–8 são reservados ao tema normal; o arco-íris começa no par
-  10 e reserva 8 pares por item de `RAINBOW_SEQUENCE`.
-- Não remova os `try/except curses.error`: escrever no limite inferior/direito
-  do terminal e o suporte de cores variam entre emuladores.
+  a cabeça branca (sempre `(255, 255, 255)` depois de convertido — é o que
+  `tests/test_palette.py` verifica). `theme_gradient_stops()` é a única
+  ponte entre essa tabela e o motor de cor contínuo; não hard-code RGB de
+  tema em outro lugar.
 - Mantenha `width - 1` ao criar colunas em `RainMode`. É uma proteção
   intencional para caracteres Katakana de largura ambígua e bordas de
-  `curses`.
+  tela.
+- `Screen` (não mais `curses`) é quem decide o que é seguro escrever — não
+  duplique a checagem de limites (`0 <= y < height`) em outro lugar; passe
+  por `App.add_char`.
 - O caminho de saída deve continuar restaurando cursor e atributos ANSI no
   bloco `finally` de `core.cli.run()`.
 - `density` controla a quantidade de fluxos ativos em `RainMode` e também o
@@ -148,29 +238,39 @@ antiga velocidade global 2.
   `[`/`]`) ajustam velocidade e densidade; `t` alterna temas, `r` alterna
   arco-íris, `m` alterna os visualizadores e `h` mostra o painel. `p` alterna
   sua visibilidade.
-- Um modo nunca chama `curses` diretamente nem acessa `app.stdscr` fora dos
-  helpers já expostos por `App` — exceção histórica: `RainMode._draw()`
-  escreve em `app.stdscr.addstr()` diretamente e por isso `modes/rain.py`
-  importa `curses` só para capturar `curses.error` ao redor dessa escrita,
-  replicando o comportamento pré-split; não generalize esse padrão (nem o
-  `import curses`) para outros modos sem necessidade.
+- Um modo nunca chama `curses` diretamente nem acessa `app.stdscr` — passe
+  sempre por `app.add_char()`/`app.add_background()`/`app.get_color()`/
+  `app.get_background_rgb()`/`app.get_contrast_color()`.
 
 ## Alterações comuns
 
 - **Novo tema:** acrescente 8 cores a `COLOR_PALETTE` (`core/palette.py`),
   exponha-o nas escolhas da CLI (isso já acontece automaticamente via
   `core.cli.parse_args()`) e atualize o README. Inclua-o em
-  `RAINBOW_SEQUENCE` somente se ele fizer sentido no ciclo arco-íris.
-- **Ajuste de estética do Rain:** prefira alterar `RainMode._random_speed`,
-  `_random_trail_length`, `_update_column` ou `_respawn_column`; não misture
-  estado de animação com `_draw`.
+  `RAINBOW_SEQUENCE` somente se ele fizer sentido no ciclo arco-íris. Não
+  precisa mexer em `core/color.py` — `theme_gradient_stops()` deriva o
+  gradiente automaticamente das 8 novas entradas.
+- **Ajuste de estética do Rain (rastro principal):** prefira alterar
+  `RainMode._random_speed`, `_random_trail_length`, `_update_column` ou
+  `_respawn_column`; não misture estado de animação com `_draw`.
+- **Ajuste de estética do Rain (ghost layer) ou do Pulse (gradient wash):**
+  são as camadas de "Profundidade de fundo" acima — mexa em
+  `_GHOST_*`/`_init_ghost`/`_draw_ghost` (`modes/rain.py`) ou
+  `_WASH_DIM_FACTOR`/`_draw_wash` (`modes/pulse.py`). Qualquer redesenho
+  visual passa por `/prototype` de novo antes de implementar, não só por
+  ajuste direto de constantes.
 - **Novo visualizador:** crie um arquivo em `modes/`, implemente uma classe
   que estenda `modes.base.Mode` (`reset(app)`, `render(app)`), e registre-a
   em `MODE_CLASSES`/`MODE_ORDER` (`modes/__init__.py`). Reuse
-  `app.base_speed`, `app.density` e `app.get_color_attr()` para manter os
-  controles consistentes com os outros modos.
+  `app.base_speed`, `app.density` e `app.get_color()` para manter os
+  controles consistentes com os outros modos — e lembre que ele também
+  precisa de uma camada de fundo (ver "Profundidade de fundo" acima).
 - **Novo argumento:** implemente-o em `core.cli.parse_args()`, passe-o por
   `core.cli._main()` a `App`, e documente-o no README.
+- **Mexeu em `core/color.py` ou `core/palette.py`:** rode
+  `python3 -m unittest discover -s tests -t .` antes de validar
+  manualmente — é rápido e pega regressão de gradiente/fallback sem
+  precisar abrir um terminal.
 
 ## Limites conhecidos
 

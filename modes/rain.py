@@ -3,16 +3,29 @@
 Column-based rendering: two persistent grids (character, brightness) are
 updated as columns fall, then drawn in bulk each frame. No horizontal
 flickering, long-persistence trails.
+
+A second, sparser and slower "ghost layer" of columns falls behind the
+main trail, giving the mode a sense of fundo->frente depth — the
+equivalent of what Network already had via its star field. Validated in
+the issue #1 background-depth prototype (variant A, "Ghost layer").
 """
 
-import curses
 import random
 from dataclasses import dataclass
 
+from core import color as color_engine
 from core.charset import MATRIX_CHARS
 from core.palette import NUM_SHADES
 
 from .base import Mode
+
+# Ghost layer tuning: sparse (most columns have none), much slower than
+# even the slowest main-trail column, short trails, and pushed toward the
+# theme's darker end + dimmed further so it always reads as "behind".
+_GHOST_DENSITY = 0.3
+_GHOST_SPEED_RANGE = (0.08, 0.22)
+_GHOST_TRAIL_RANGE = (4, 9)
+_GHOST_DIM_FACTOR = 0.4
 
 
 @dataclass
@@ -36,6 +49,9 @@ class RainMode(Mode):
         self.char_grid = []
         # Brightness grid: 0=brightest, 7=dimmest, 8+=invisible.
         self.brightness_grid = []
+        # Ghost (background depth) layer — see module docstring.
+        self.ghost_columns = []
+        self.ghost_char_cache = {}
 
     def reset(self, app):
         """(Re)build the grids and columns, sized to the current terminal."""
@@ -54,6 +70,25 @@ class RainMode(Mode):
             self.columns.append(col)
 
         self.apply_density(app)
+        self._init_ghost(app)
+
+    def _init_ghost(self, app):
+        """(Re)build the sparse background ghost layer, sized to the
+        current terminal. Rebuilt wholesale (not incrementally resized)
+        on every reset/resize — it's decorative, so simplicity wins over
+        preserving exact column state across a resize."""
+        self.ghost_columns = []
+        self.ghost_char_cache = {}
+        for x in range(app.width - 1):
+            if random.random() >= _GHOST_DENSITY:
+                continue
+            self.ghost_columns.append(Column(
+                x=x,
+                head_y=-random.randint(1, max(2, app.height // 2)),
+                speed=self._random_ghost_speed(app),
+                trail_length=self._random_ghost_trail(),
+                spawn_delay=random.randint(0, 20),
+            ))
 
     def _clear_column(self, x: int):
         """Remove an inactive stream and its persisted trail."""
@@ -100,6 +135,15 @@ class RainMode(Mode):
     def _random_char(self) -> str:
         """Get a random Matrix character."""
         return random.choice(MATRIX_CHARS)
+
+    def _random_ghost_speed(self, app) -> float:
+        """Ghost columns fall slower than even the slowest main column —
+        that speed gap is what reads as parallax depth, not just a dimmer
+        copy of the same rain."""
+        return app.base_speed * random.uniform(*_GHOST_SPEED_RANGE)
+
+    def _random_ghost_trail(self) -> int:
+        return random.randint(*_GHOST_TRAIL_RANGE)
 
     def _update_column(self, app, col: Column):
         """Update a single column's state."""
@@ -192,14 +236,47 @@ class RainMode(Mode):
                 if char == ' ':
                     continue
 
-                try:
-                    attr = app.get_color_attr(brightness, x)
-                    app.stdscr.addstr(y, x, char, attr)
-                except curses.error:
-                    # Ignore errors at screen boundaries
-                    pass
+                app.add_char(y, x, char, app.get_color(brightness, x))
+
+    def _update_ghost(self, app):
+        for col in self.ghost_columns:
+            if col.spawn_delay > 0:
+                col.spawn_delay -= 1
+                continue
+            col.head_y += col.speed
+            if col.head_y - col.trail_length > app.height + 5:
+                col.head_y = -random.randint(1, 20)
+                col.speed = self._random_ghost_speed(app)
+                col.trail_length = self._random_ghost_trail()
+
+    def _draw_ghost(self, app):
+        """Draw the ghost layer first, so the main trail (drawn right
+        after) overwrites it wherever both land on the same cell — that
+        draw order is what makes the main rain read as "in front"."""
+        for col in self.ghost_columns:
+            if col.spawn_delay > 0:
+                continue
+            head = col.head_y
+            trail = col.trail_length
+            start_y = max(0, int(head - trail))
+            end_y = min(app.height, int(head) + 1)
+            for y in range(start_y, end_y):
+                distance = head - y
+                if distance < 0 or distance > trail:
+                    continue
+                t = distance / trail if trail else 0.0
+                key = (col.x, y)
+                char = self.ghost_char_cache.get(key)
+                if char is None:
+                    char = self._random_char()
+                    self.ghost_char_cache[key] = char
+                rgb = app.get_background_rgb(min(1.0, 0.5 + t * 0.5), col.x)
+                rgb = color_engine.dim(rgb, _GHOST_DIM_FACTOR)
+                app.add_char(y, col.x, char, (rgb, False, False))
 
     def render(self, app):
+        self._update_ghost(app)
+        self._draw_ghost(app)
         for col in self.columns:
             self._update_column(app, col)
         self._draw(app)
@@ -241,3 +318,4 @@ class RainMode(Mode):
             self.columns = [c for c in self.columns if c.x < new_width - 1]
 
         self.apply_density(app)
+        self._init_ghost(app)
