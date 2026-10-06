@@ -21,8 +21,14 @@ class App:
     """Runs the visualizer: curses setup, mode dispatch, live controls."""
 
     def __init__(self, stdscr, color: str = 'green', mode: str = 'rain', speed: int = 5,
-                 density: int = 7, screensaver: bool = False, rainbow: bool = False):
+                 density: int = 7, screensaver: bool = False, rainbow: bool = False,
+                 canvas_size=None):
         self.stdscr = stdscr
+        # Where the drawing area's (height, width) comes from. By default
+        # it's the terminal itself; the video wall passes its own callable
+        # so the app can draw on a canvas larger than (or unrelated to) the
+        # terminal this process happens to be attached to.
+        self._canvas_size = canvas_size or stdscr.getmaxyx
         self.color_name = color
         self.base_speed = speed / 10.0  # Normalize to 0.1 - 1.0
         self.density = density
@@ -37,8 +43,8 @@ class App:
         # enforcement of the same CLI validation.
         self.active_mode = mode if mode in MODE_ORDER else MODE_ORDER[0]
 
-        # Get terminal dimensions
-        self.height, self.width = stdscr.getmaxyx()
+        # Get drawing-area dimensions
+        self.height, self.width = self._canvas_size()
 
         # Detected once — a terminal's true-color support doesn't change
         # mid-session. Everything drawn goes through this same decision, so
@@ -245,8 +251,9 @@ class App:
         self.show_status('Mode: {0}'.format(self.active_mode.upper()))
 
     def handle_resize(self):
-        """Handle terminal resize."""
-        new_height, new_width = self.stdscr.getmaxyx()
+        """Handle a change in the drawing area's size (terminal resize, or
+        the wall's canvas growing or shrinking)."""
+        new_height, new_width = self._canvas_size()
 
         if new_height != self.height or new_width != self.width:
             old_height, old_width = self.height, self.width

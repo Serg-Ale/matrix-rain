@@ -45,7 +45,8 @@ Arquivos versionados:
   - `__init__.py`: registro dos modos — `MODE_ORDER` (ordem do ciclo da tecla
     `m`) e `MODE_CLASSES` (nome → classe).
 - `tests/`: testes de unidade (stdlib `unittest`) para a lógica pura de
-  `core/color.py` e `core/palette.py`. Nada que dependa de `curses` é
+  `core/color.py`, `core/palette.py` e da interface de fatiar/reconstruir
+  do `core/screen.py`. Nada que dependa de `curses` é
   testado automaticamente — ver "Como executar e validar".
 - `README.md`: documentação voltada a pessoas e exemplos de uso.
 - `assets/demo.gif`: demonstração visual usada no README.
@@ -92,6 +93,15 @@ bruto direto pro terminal.
   sem caractere, usado por `add_background`). Onde as duas coexistem, o
   primeiro plano sempre vence — a camada de fundo só aparece nas células
   que ninguém mais desenhou naquele frame.
+- `Screen.extract(top, left, height, width)` devolve as células de um
+  retângulo em coordenadas locais (caracteres e fundos, com a regra
+  "primeiro plano vence"; um caractere de largura dupla na última coluna
+  do retângulo é descartado), e `Screen.load(cells, bgs)` reconstrói um
+  frame a partir disso. É a base do "video wall" (issue #14): um terminal
+  fatia o frame do canvas virtual e outro o desenha.
+- `App` aceita `canvas_size` (um callable que devolve `(altura, largura)`)
+  para desenhar numa área independente do tamanho do terminal; por padrão
+  é o próprio `stdscr.getmaxyx()`.
 - `Screen` reposiciona o cursor explicitamente antes de cada caractere (em
   vez de confiar no avanço automático do terminal) e nunca escreve no
   canto inferior-direito — duas lições vindas do protótipo de fundo/
