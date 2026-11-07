@@ -177,6 +177,7 @@ class App:
 
         network_tempo = self.modes['network'].tempo
         pulse_thickness = self.modes['pulse'].thickness
+        koi_size = self.modes['koi'].size
 
         # Inside the wall, J/L/gap live on their own panel row (wall_info).
         wall_hint = '' if self.wall_info else '  J wall'
@@ -184,6 +185,8 @@ class App:
             context_row = ',/. net:{0:.1f}x{1}  M/T/R/P'.format(network_tempo, wall_hint)
         elif self.active_mode == 'pulse':
             context_row = ',/. thickness:{0:.1f}x{1}  M/T/R/P'.format(pulse_thickness, wall_hint)
+        elif self.active_mode == 'koi':
+            context_row = ',/. size:{0:.1f}x{1}  M/T/R/P'.format(koi_size, wall_hint)
         else:
             context_row = 'M mode  T theme  R rainbow{0}'.format(wall_hint)
 
@@ -241,6 +244,10 @@ class App:
     def change_pulse_thickness(self, amount: float):
         """Set a pulse-only ring-thickness multiplier."""
         self.modes['pulse'].change_thickness(amount, self)
+
+    def change_koi_size(self, amount: float):
+        """Set a koi-only fish size multiplier (smaller = more fish)."""
+        self.modes['koi'].change_size(amount, self)
 
     def cycle_theme(self):
         """Cycle normal color themes and leave rainbow mode."""
@@ -307,6 +314,10 @@ class App:
                     self.change_pulse_thickness(-0.1)
                 elif self.active_mode == 'pulse' and key == ord('.'):
                     self.change_pulse_thickness(0.1)
+                elif self.active_mode == 'koi' and key == ord(','):
+                    self.change_koi_size(-0.1)
+                elif self.active_mode == 'koi' and key == ord('.'):
+                    self.change_koi_size(0.1)
                 elif key == ord('r') or key == ord('R'):
                     self.rainbow = not self.rainbow
                     message = 'Rainbow enabled' if self.rainbow else 'Theme: {0}'.format(self.color_name)

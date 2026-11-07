@@ -13,7 +13,7 @@ A beautiful terminal-based Matrix digital rain animation featuring authentic Jap
 - **Glowing Head Effect** - White leading character with 3-character bright glow trail
 - **11 Color Themes** - Classic and neon palettes, including Orange, Pink, Ice, and Violet (see the [gallery](#available-colors))
 - **Rainbow Mode** - Psychedelic cycling colors across columns
-- **3 Visualizer Modes** - Rain, Pulse, and Network, switchable live with `m`
+- **4 Visualizer Modes** - Rain, Pulse, Network and Koi (a pond of koi, lily pads and lotus in matrix glyphs, ported from the Thema `koi-pond` scene), switchable live with `m`
 - **True Color** - 24-bit gradients where the terminal supports it, with an automatic 256-color fallback
 - **Video Wall** - Several terminals on one machine become tiles of a single screen (see [Video wall](#video-wall))
 - **Adjustable Speed** - From slow cinematic (1) to blazing fast (10)
@@ -78,6 +78,7 @@ matrix-rain --rainbow
 # Start straight in a different visualizer (default: rain)
 matrix-rain -m pulse
 matrix-rain -m network
+matrix-rain -m koi        # koi pond: density sets how much water the fish cover; , and . resize them (smaller = more fish)
 
 # Adjust speed (1-10, default: 5)
 matrix-rain -s 8      # Faster

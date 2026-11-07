@@ -6,17 +6,19 @@ and ``render(app)``. ``core.app.App`` looks modes up by name through
 editing the orchestrator.
 """
 
+from .koi import KoiMode
 from .network import NetworkMode
 from .pulse import PulseMode
 from .rain import RainMode
 from .scanner import ScannerMode  # noqa: F401 — kept for reuse, not registered below (see modes/scanner.py)
 
 # 'm' cycles through these, in this order. Matches the pre-split behavior
-# exactly: rain -> pulse -> network -> rain...
-MODE_ORDER = ['rain', 'pulse', 'network']
+# exactly for the first three (rain -> pulse -> network), then koi -> rain...
+MODE_ORDER = ['rain', 'pulse', 'network', 'koi']
 
 MODE_CLASSES = {
     'rain': RainMode,
     'pulse': PulseMode,
     'network': NetworkMode,
+    'koi': KoiMode,
 }

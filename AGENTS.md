@@ -46,6 +46,7 @@ Arquivos versionados:
     caractere/brilho, `RainMode`.
   - `pulse.py`: anéis expansivos — `PulseMode`.
   - `network.py`: campo 3D de nós/links/estrelas — `NetworkMode`.
+  - `koi.py`: lagoa de carpas — `KoiMode`, portada da cena `koi-pond` do Thema. Carpas seguem laços fechados (coluna vertebral refeita a cada frame, corpo rasterizado em volta), vitórias-régias e lótus; o padrão (corpo branco, manchas vermelhas e pretas, carpa dourada) vai em brilho + classe de glifo, já que há uma só cor de tema. Densidade = quanto da água os peixes cobrem; `,`/`.` mudam o tamanho (menor = mais peixes, até 32), e o tamanho padrão já é pequeno em terminais com muitas linhas. Testes em `tests/test_koi.py`.
   - `scanner.py`: radar tático — `ScannerMode`, existe mas **não** está
     registrado no ciclo de modos (era código morto já antes do split modular;
     ver comentário no arquivo). Não o ative sem que isso seja uma decisão de
